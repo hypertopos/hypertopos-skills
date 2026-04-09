@@ -1,0 +1,21 @@
+{
+  "name": "hypertopos-skills",
+  "description": "Agent skills for navigating Geometric Data Spheres via hypertopos MCP",
+  "version": "0.1.0",
+  "homepage": "https://github.com/hypertopos/",
+  "repository": "https://github.com/hypertopos/hypertopos-skills",
+  "license": "Apache-2.0",
+  "keywords": [
+    "skills",
+    "hypertopos",
+    "gds",
+    "geometric-data-sphere",
+    "data-exploration",
+    "clustering",
+    "population-analysis",
+    "drift-detection",
+    "anomaly-detection",
+    "fraud-investigation",
+    "sphere-design"
+  ]
+}

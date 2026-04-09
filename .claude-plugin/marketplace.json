@@ -1,0 +1,28 @@
+{
+  "name": "hypertopos-skills",
+  "owner": {
+    "name": "Karol Kędzia"
+  },
+  "metadata": {
+    "description": "Agent skills for navigating Geometric Data Spheres via hypertopos MCP",
+    "version": "0.1.0"
+  },
+  "plugins": [
+    {
+      "name": "hypertopos-skills",
+      "description": "Agent skills for GDS sphere navigation — investigation, exploration, monitoring, fraud investigation, and sphere design",
+      "source": "./",
+      "strict": false,
+      "skills": [
+        "./gds-analyst",
+        "./gds-explorer",
+        "./gds-investigator",
+        "./gds-detective",
+        "./gds-scanner",
+        "./gds-monitor",
+        "./gds-fraud-investigator",
+        "./gds-sphere-designer"
+      ]
+    }
+  ]
+}

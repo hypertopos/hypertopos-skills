@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# IDE
+.idea/
+.vscode/
+.cursor/
+*.iml
+
+# Claude Code
+.claude/
+.worktrees/
+.agents/

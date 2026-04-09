@@ -1,0 +1,39 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "hypertopos-skills"
+version = "0.1.0"
+description = “Agent skills for GDS sphere navigation — analyst, exploration, investigation, detection, scanning, monitoring, fraud investigation, sphere design”
+requires-python = ">=3.12"
+license = "Apache-2.0"
+
+[[project.authors]]
+name = "Karol Kędzia"
+
+[project.urls]
+Homepage = "https://github.com/hypertopos/hypertopos-skills"
+Documentation = "https://github.com/hypertopos/hypertopos-skills"
+Repository = "https://github.com/hypertopos/hypertopos-skills"
+
+[tool.hatch.build.targets.wheel]
+packages = [
+    "gds-analyst",
+    "gds-explorer",
+    "gds-investigator",
+    "gds-detective",
+    "gds-scanner",
+    "gds-monitor",
+    "gds-fraud-investigator",
+    "gds-sphere-designer",
+]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "gds-*/SKILL.md",
+    "LICENSE",
+    "README.md",
+    "CHANGELOG.md",
+    "CONTRIBUTING.md",
+]
