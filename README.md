@@ -37,27 +37,23 @@ Investigate: gds-analyst (drives the investigation)
 
 ## Install
 
+### Recommended
+
 ```bash
-pip install hypertopos-skills
+npx skills add hypertopos/hypertopos-skills
 ```
 
-Then copy the relevant `gds-*/` skill folders into your agent's skills directory.
+Works with Claude Code, Cursor, Codex, GitHub Copilot, Amp, Cline, Windsurf, and [other supported agents](https://skills.sh).
+
+### Manual
+
+Copy the `gds-*/` skill folders into your agent's skills directory (e.g. `.claude/skills/` for Claude Code).
 
 ### Prerequisites
 
 - [hypertopos-mcp](https://github.com/hypertopos/hypertopos-mcp) available and connected
 - [hypertopos](https://github.com/hypertopos/hypertopos-py) installed in the same environment
 - A built sphere for skills that operate on live data
-
-## Platform Support
-
-| Platform | How to use |
-|----------|-----------|
-| **Claude Code** | Copy skill folders into `.claude/skills/` |
-| **Claude.ai** | Upload skill folder as a skill package |
-| **Cursor** | Use skill folders as project instructions, connect to MCP |
-| **Codex / CLI** | Point agent at `gds-*/SKILL.md`, keep MCP available |
-| **Other** | Copy `SKILL.md` content into the platform's instruction mechanism |
 
 ## Design
 
