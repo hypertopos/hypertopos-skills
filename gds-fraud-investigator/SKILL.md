@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Requires hypertopos MCP server with a financial transaction sphere (account, pair, chain patterns).
 metadata:
   author: Karol Kędzia
-  version: 0.2.0
+  version: 0.2.1
   mcp-server: hypertopos
 ---
 
@@ -215,6 +215,7 @@ Use these when the sphere has event patterns with edge tables (`edge_stats` retu
 | R5 Financial Profile | entity total in/out/net flow | Risk profiling / mule detection |
 | R6 Concentration Risk | single counterparty dominates flow | Over-reliance / control |
 | R7 Benford's Law | first-digit distribution of amounts | Fabricated transactions |
+| R8 Witness Cohort | high witness overlap + trajectory convergence, no existing edge | Fraud cohort expansion — surface peers sharing the target's anomaly signature |
 
 ### R1 — Mirror Transaction Detection
 
@@ -297,6 +298,29 @@ Use these when the sphere has event patterns with edge tables (`edge_stats` retu
 **Note:** `discover_chains` returns only `total_amount` per chain (aggregate sum), not individual transaction amounts. Use `anomalous_edges` to get per-transaction amounts needed for Benford analysis.
 
 **Interpretation:** Chi-squared test against Benford expected frequencies. p-value < 0.05 = amounts are likely not organic. Most effective with 100+ transactions.
+
+### R8 — Witness Cohort Discovery (Fraud Cohort Expansion)
+
+**Pattern:** A confirmed launderer X has a ring of accomplices. Some are already in X's counterparty network (visible via `find_counterparties`). Others share X's anomaly signature — same witness dimensions, drifting in the same geometric direction — but are NOT yet connected to X via transactions. `find_witness_cohort` surfaces these geometric peers, ranked by composite witness/delta/trajectory/anomaly score, with already-connected entities filtered out.
+
+**Honest scope:** This is **investigative cohort expansion**, NOT edge forecasting. Empirical validation on AML HI-small: 25.3% co-laundering precision@10 (20.5× lift over random base rate), 2.6× improvement over `find_similar_entities + is_anomaly` baseline. Temporal hold-out recall@10 = 0% — the function does NOT predict that X and the cohort members will transact in the future. It surfaces existing peers worth investigating, not future connections.
+
+**Tool sequence:**
+1. Identify a confirmed or suspected launderer `X` (from typology recipes R1–R7 or external intel)
+2. `find_witness_cohort(X, anchor_pattern_id, top_n=10)` — top peers excluding existing counterparties
+3. Inspect `members[]` — focus on entries with `witness_overlap >= 0.5` AND `is_anomaly == true`
+4. For each candidate `Y`: `cross_pattern_profile(Y, line_id)` to verify multi-pattern confirmation
+5. For high-confidence candidates: `find_witness_cohort(Y, anchor_pattern_id)` — recursive expansion to map the cohort
+
+**Interpretation:** A cohort member with `witness_overlap = 1.0` and `trajectory_alignment > 0.95` is strong — shares the SAME structural anomaly signature and the same geometric drift direction as X. Validated on AML data this signal correlates with co-laundering at 20.5× the random base rate. The lack of an existing edge is the agent-guidance value: existing counterparties are skipped (often legitimate), so the cohort is denser in unknown peers worth investigating.
+
+**False positive guard:** Two competitors or two unrelated entities can also share witness profiles. Use cohort members as INVESTIGATIVE RANKING, not as evidence. Combine with domain context before escalation. Out of 30 sampled known launderers, mean precision@10 was 25.3% — meaning ~3/4 of cohort members are NOT laundering even when the seed is. The function reduces the search space by 20.5×, it does not eliminate the need for human verification.
+
+**Why this is unique vs other tools:**
+- `find_similar_entities + is_anomaly = true`: returns shape twins via plain ANN. Same operation but **2.6× weaker** at AML cohort discovery (6.5% vs 17%, with witness_overlap fix this becomes 25.3%). Top-10 overlap with `find_witness_cohort` is only 15.5% — substantively different rankings. `find_similar_entities` does not exclude existing counterparties (often legitimate), does not score witness overlap, and does not weight trajectory alignment
+- Neo4j GDS link prediction: topological features only (Adamic-Adar, common neighbors), no witness sets, no population-relative geometry
+- ML link prediction (Node2Vec, GraphSAGE): requires training, no interpretability, no labeled data needed for hypertopos
+- Vector DB ANN: nearest neighbors but no graph awareness, no edge exclusion
 
 ## Common Pitfalls
 

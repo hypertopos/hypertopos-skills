@@ -4,6 +4,12 @@ All notable changes to `hypertopos-skills` will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.2.1] — 2026-04-11
+
+### Changed
+
+- **gds-fraud-investigator** — new R8 Witness Cohort recipe in Edge Table Investigation Recipes section. Uses `find_witness_cohort` for fraud cohort expansion: find more accounts that share the target's anomaly signature, excluding already-connected counterparties. Honest framing: surfaces existing peers, NOT predictions of future edges. Bumped skill metadata.version to 0.2.1.
+
 ## [0.2.0] — 2026-04-10
 
 ### Changed
