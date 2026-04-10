@@ -29,6 +29,21 @@ chain_lines:
     max_chains: 300000
 ```
 
+**Edge table** — auto-emitted for event patterns with 2+ FK relations to same anchor line. Optional explicit config:
+```yaml
+# Edge table enables find_geometric_path, discover_chains, edge_stats
+# MCP tools at navigation time.
+# Build cost: near zero (data already in memory during geometry build).
+# Skip with --no-edges CLI flag.
+patterns:
+  tx_pattern:
+    edge_table:
+      from_col: sender_id
+      to_col: receiver_id
+      timestamp_col: tx_date    # optional
+      amount_col: amount        # optional
+```
+
 **Mahalanobis distance** — for correlated dimensions:
 ```yaml
 patterns:

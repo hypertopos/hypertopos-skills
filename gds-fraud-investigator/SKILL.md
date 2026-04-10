@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Requires hypertopos MCP server with a financial transaction sphere (account, pair, chain patterns).
 metadata:
   author: Karol Kędzia
-  version: 0.1.0
+  version: 0.2.0
   mcp-server: hypertopos
 ---
 
@@ -20,6 +20,19 @@ GDS fraud investigation is a **3-phase process**: build right, scan passively, v
 Active navigation does NOT increase recall — it only helps verify suspects and eliminate
 false positives. The real detection power comes from multi-source passive scanning across
 all geometry layers.
+
+## Prerequisites — Edge Table Check
+
+Before using graph traversal tools (`find_geometric_path`, `discover_chains`), verify the
+sphere has an edge table for the relevant event pattern:
+
+```
+edge_stats(pattern_id="transaction_pattern")
+```
+
+If this returns edge counts and degree stats, graph tools are available. If it errors or
+returns empty, the pattern lacks from/to FK structure — fall back to `find_counterparties`
+and `extract_chains` instead.
 
 ## Threshold Convention
 
@@ -64,10 +77,16 @@ passive_scan(home_line_id="accounts", sources='[
 ]')
 ```
 
-Auto-discover with borderline:
+Auto-discover with borderline (also auto-detects graph contagion source if edge table exists):
 ```
 passive_scan(home_line_id="accounts", include_borderline=true, borderline_rank_threshold=80)
 ```
+
+After passive_scan, batch-score the top suspects by neighborhood contamination:
+```
+contagion_score_batch(suspect_keys, pattern_id)
+```
+Entities with high contagion ratio are network hubs, not isolated actors — prioritize them.
 
 If `passive_scan` is not available, manually combine:
 ```
@@ -115,6 +134,8 @@ Key signals:
 - Counterparties with `is_anomaly=true` = network confirmation
 - Temporal burst → silence pattern = classic placement/layering
 
+Before closing: `investigation_coverage(pk, pattern_id, explored_keys)` — confirms explored vs unexplored counterparties. Low coverage means additional network exploration warranted.
+
 ### Recipe: Network Expansion
 
 From a confirmed suspect, expand the investigation network:
@@ -124,9 +145,25 @@ From a confirmed suspect, expand the investigation network:
 2. Filter anomalous counterparties        → subset with is_anomaly=true
 3. For each anomalous counterparty:
      cross_pattern_profile(cp_key)        → are THEY multi-source flagged?
-4. extract_chains(seed_nodes=[suspect])   → chains involving this account
-5. Filter: is_cyclic=true                 → round-trip chains
+4. discover_chains(suspect, pattern_id="transaction_pattern",
+     time_window_hours=72, max_hops=5)    → runtime chain discovery (preferred)
+5. Filter: chains with cyclic structure   → round-trip chains
 ```
+
+**`discover_chains` vs `extract_chains`:** `discover_chains` runs temporal BFS at query
+time on the edge table — no pre-built chain_lines required. Use it as the primary chain
+discovery tool. Fall back to `extract_chains(seed_nodes=[suspect])` when you need
+population-level chain statistics or when the sphere has pre-built chain patterns.
+
+**Tracing connections between two suspects:**
+```
+find_geometric_path(from_key=suspect_A, to_key=suspect_B,
+  pattern_id="transaction_pattern", scoring="anomaly")
+```
+This traces how two suspects are connected through the transaction graph. `scoring="anomaly"`
+prioritizes paths through anomalous intermediaries — the most suspicious route between them.
+Use `scoring="geometric"` to find paths through geometrically unusual entities, or
+`scoring="shortest"` for the most direct connection.
 
 ### Recipe: FP Elimination
 
@@ -157,12 +194,109 @@ Quick reference:
 
 | Pattern type | Key signal | Investigation tool |
 |---|---|---|
-| FAN-OUT | high out_degree + many dest_banks | find_counterparties → check all targets |
-| FAN-IN | high in_sources | find_counterparties → who feeds this account? |
-| CYCLE | pair anomalies + chain is_cyclic | find_counterparties → counterpart overlap |
-| STACK | delta_rank_pct 90-95 (borderline) | check chain membership |
+| FAN-OUT | high out_degree + many dest_banks | find_counterparties → check all targets; `edge_stats` confirms degree distribution |
+| FAN-IN | high in_sources | find_counterparties → who feeds this account?; `edge_stats` for inbound concentration |
+| CYCLE | pair anomalies + chain is_cyclic | `discover_chains(direction="outgoing")` → filter cyclic; `find_geometric_path(scoring="anomaly")` traces the ring |
+| STACK | delta_rank_pct 90-95 (borderline) | `discover_chains(min_hops=3)` → check chain membership at runtime |
 | BIPARTITE | pair anomalies + community | aggregate(group_by_property="community_id") |
-| RANDOM | chain anomalies | highest chain recall pattern |
+| RANDOM | chain anomalies | `discover_chains(max_hops=6)` → longest reachable chains |
+| BRIDGE | entity straddles two communities | `cluster_bridges(pattern_id)` → bridges with anomalous status on both sides are high-risk connectors |
+
+## Edge Table Investigation Recipes
+
+Use these when the sphere has event patterns with edge tables (`edge_stats` returns `has_edge_table: true`).
+
+| Recipe | Signal | When to use |
+|--------|--------|-------------|
+| R1 Mirror Transaction | A→B and B→A same amount same day | Circular flow detection |
+| R2 Pass-Through | receive + send within 2 hours | Rapid pass-through / layering |
+| R3 Burst Detection | many tx to same target in 24h | Structuring / smurfing |
+| R4 Weighted Reciprocity | balanced in/out with same counterparty | Round-tripping / wash trading |
+| R5 Financial Profile | entity total in/out/net flow | Risk profiling / mule detection |
+| R6 Concentration Risk | single counterparty dominates flow | Over-reliance / control |
+| R7 Benford's Law | first-digit distribution of amounts | Fabricated transactions |
+
+### R1 — Mirror Transaction Detection
+
+**Pattern:** Entity A sends to B, and B sends back to A the same (or similar) amount within the same day. Classic circular flow indicator.
+
+**Tool sequence:**
+1. `discover_chains(primary_key, pattern_id, direction="both", time_window_hours=24, min_hops=2)` — find short loops
+2. Filter chains where `keys[0] == keys[-1]` (cyclic) or where the chain returns to a known counterparty
+3. `anomalous_edges(from_key, to_key, pattern_id)` — inspect individual transactions between the mirror pair
+4. Compare amounts: if `abs(edge_a.amount - edge_b.amount) / max(amounts) < 0.05` → strong mirror signal
+
+**Interpretation:** Mirror ratio > 0.95 with same-day timing is a strong indicator. Check if both edges are individually anomalous (`is_anomaly=true` in event geometry).
+
+### R2 — Pass-Through / Rapid Layering
+
+**Pattern:** Entity receives funds and sends within 2 hours. The entity is a conduit, not a destination.
+
+**Tool sequence:**
+1. `discover_chains(primary_key, pattern_id, time_window_hours=2, min_hops=2, max_chains=50)` — find rapid chains
+2. `entity_flow(primary_key, pattern_id)` — check if `net_flow ≈ 0` (pass-through entities have balanced flow)
+3. `anomalous_edges(from_key, to_key, pattern_id)` — inspect individual transactions at the bottleneck hop
+
+**Interpretation:** net_flow near zero + chains with tight time windows = layering. `degree_velocity` showing acceleration confirms recent ramp-up.
+
+### R3 — Burst Detection (Structuring / Smurfing)
+
+**Pattern:** Many transactions to the same target within 24 hours, each below a reporting threshold.
+
+**Tool sequence:**
+1. `discover_chains(primary_key, pattern_id, time_window_hours=24, max_chains=100)` — find all outgoing activity
+2. Group chains by terminal entity — look for repeated targets
+3. `anomalous_edges(from_key, target_key, pattern_id, top_n=50)` — get all edges to the repeated target
+4. Check if individual amounts are below a threshold but sum exceeds it
+
+**Interpretation:** 5+ transactions to same target in 24h with amounts clustered below a round number (e.g., 9,500 when reporting threshold is 10,000) is a strong structuring signal.
+
+### R4 — Weighted Reciprocity
+
+**Pattern:** Balanced bidirectional flow between two entities — min(out, in) / max(out, in) close to 1.0.
+
+**Tool sequence:**
+1. `entity_flow(primary_key, pattern_id)` — get per-counterparty net flow
+2. For each counterparty with both outgoing AND incoming: `reciprocity = min(out, in) / max(out, in)`
+3. `anomalous_edges(from_key, counterparty_key, pattern_id)` — inspect the transactions
+
+**Interpretation:** Reciprocity > 0.8 between two entities = suspicious round-tripping. Cross-reference with `contagion_score` — if the counterparty is also contagious, the pair is high-priority.
+
+### R5 — Financial Profile (Mule Detection)
+
+**Pattern:** Entity's total flow reveals its role: source (high out, low in), sink (high in, low out), or mule (high both, near-zero net).
+
+**Tool sequence:**
+1. `entity_flow(primary_key, pattern_id)` — get totals
+2. `cross_pattern_profile(primary_key, line_id)` — anomaly status across all patterns
+3. Classify: `net_flow > 0.7 * outgoing_total` → source; `net_flow < -0.7 * incoming_total` → sink; else → mule candidate
+
+**Interpretation:** Mule candidates (balanced flow, multiple patterns flagged) warrant `propagate_influence` to map the network they serve.
+
+### R6 — Concentration Risk
+
+**Pattern:** A single counterparty dominates an entity's flow — potential control relationship.
+
+**Tool sequence:**
+1. `entity_flow(primary_key, pattern_id, top_n=5)` — get top counterparties by abs(net_flow)
+2. Compute `concentration = abs(top_1_net_flow) / (outgoing_total + incoming_total)`
+3. `contagion_score(primary_key, pattern_id)` — check if the concentrated counterparty is anomalous
+
+**Interpretation:** Concentration > 0.6 means one counterparty controls >60% of flow. If that counterparty is anomalous (contagion), the entity is at high risk.
+
+### R7 — Benford's Law (Amount Distribution)
+
+**Pattern:** Natural financial data follows Benford's Law for first digits. Fabricated transactions often don't.
+
+**Tool sequence:**
+1. `find_counterparties(primary_key, line_id, from_col, to_col, pattern_id)` — get top counterparties
+2. For each counterparty pair: `anomalous_edges(from_key, to_key, pattern_id, top_n=50)` — collect per-transaction amounts
+3. Aggregate all `edge.amount` values across counterparties, compute first-digit distribution
+4. Compare with expected Benford distribution: 1→30.1%, 2→17.6%, 3→12.5%, etc.
+
+**Note:** `discover_chains` returns only `total_amount` per chain (aggregate sum), not individual transaction amounts. Use `anomalous_edges` to get per-transaction amounts needed for Benford analysis.
+
+**Interpretation:** Chi-squared test against Benford expected frequencies. p-value < 0.05 = amounts are likely not organic. Most effective with 100+ transactions.
 
 ## Common Pitfalls
 
@@ -170,7 +304,9 @@ Quick reference:
 - `find_similar_entities` returns shape twins, not new suspects — use `find_counterparties` for network expansion
 - High `delta_norm` can mean legitimate high-activity entity — cross-reference with business context
 - Pair pattern captures relationship anomalies invisible at account level — always check it
-- `extract_chains` without `seed_nodes` causes hub monopolization — pass seed accounts
+- `extract_chains` without `seed_nodes` causes hub monopolization — prefer `discover_chains` which takes a single primary_key
+- `find_geometric_path` with `scoring="shortest"` finds direct connections but misses suspicious intermediaries — use `scoring="anomaly"` for fraud investigation
+- `discover_chains` `time_window_hours` defaults broadly — narrow it (e.g. 24-72h) to focus on rapid layering patterns
 - Typologies are agent-level rules on GDS primitives, not core engine logic
 - Single-source flags have high FP rate — multi-source confirmation (2+ patterns) is stronger
 
@@ -193,9 +329,10 @@ Result: "Screened 515K accounts. 847 flagged by 2+ sources. Top suspect: account
 User says: "Check for round-tripping patterns"
 
 Actions:
-1. `extract_chains(seed_nodes=[suspects], min_hops=2, max_hops=5)` — find chains
-2. Filter: `is_cyclic=true AND time_span_hours <= 24 AND n_distinct_categories >= 2`
+1. `discover_chains(suspect, pattern_id="transaction_pattern", time_window_hours=24, max_hops=5, min_hops=2)` — runtime chain discovery
+2. Filter: cyclic chains with `n_distinct_categories >= 2`
 3. For each cyclic chain: `cross_pattern_profile(first_key)` — multi-source confirmation
+4. Optional: `find_geometric_path(from_key=A, to_key=A, scoring="anomaly")` — trace the ring path through anomalous intermediaries
 
 Result: "Found 12 cyclic chains under 24h. 3 chains with source_count >= 2 flagged as ROUND_TRIPPING_3PARTY. Top chain: A→B→C→A, total_amount top 1%, 3 currencies involved."
 
@@ -218,7 +355,10 @@ Solution: Manually combine `find_anomalies` across all patterns (account, pair, 
 
 ### `extract_chains` returns empty or times out
 Cause: No chain pattern built in sphere, or missing `seed_nodes` parameter (full BFS hangs on hubs).
-Solution: Always pass `seed_nodes=[suspect_list]`. Verify chain pattern exists via `get_sphere_info()`.
+Solution: Use `discover_chains(primary_key, pattern_id, max_hops=5)` instead — it runs
+temporal BFS on the edge table at query time and does not require pre-built chain_lines.
+If `discover_chains` is not available, pass `seed_nodes=[suspect_list]` to `extract_chains`.
+Verify edge table exists via `edge_stats(pattern_id)`.
 
 ### All suspects have source_count=1
 Cause: Sphere has only one pattern (account only). Pair and chain patterns not built.

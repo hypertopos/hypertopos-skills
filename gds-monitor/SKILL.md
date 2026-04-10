@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Requires hypertopos MCP server. Designed for Claude Code and compatible agents.
 metadata:
   author: Karol Kędzia
-  version: 0.1.0
+  version: 0.2.0
   mcp-server: hypertopos
 ---
 
@@ -32,6 +32,7 @@ Two calls tell you whether anything needs attention:
 ```
 sphere_overview(detail="summary")  -> calibration, anomaly rates, profiling_alerts, has_temporal
 check_alerts()                     -> alerts sorted by severity
+edge_stats(pattern_id)             -> if event patterns exist, graph monitoring available
 ```
 
 If alerts are present, respond to them (see table below). **If `check_alerts`
@@ -46,7 +47,7 @@ is the most common monitoring gap.
 
 | Alert | What it means and what to do |
 |---|---|
-| `anomaly_rate_spike` | `anomaly_summary(pattern_id)` then `contrast_populations({anomaly: true})` — what spiked? |
+| `anomaly_rate_spike` | `anomaly_summary(pattern_id)` then `contrast_populations({anomaly: true})` — what spiked? If edge table available: `degree_velocity` on top spikers to check connection rate acceleration. |
 | `population_size_shock` | `get_sphere_info()` — compare entity counts — data ingestion issue? |
 | `theta_miscalibration` | `recalibrate(pattern_id)` then re-check `sphere_overview()` |
 | `regime_changepoint` | `find_regime_changes(pattern_id)` then `compare_time_windows()` for flagged period |
@@ -103,7 +104,7 @@ find_drifting_entities(pattern_id, top_n=10, forecast_horizon=3)
 - `forecast_anomaly=true` + `reliability=high` = early warning
 
 For top drifters, `dive_solid(key, pattern_id)` reveals whether it is
-gradual drift or a sudden jump.
+gradual drift or a sudden jump. If edge table available: `degree_velocity(key, pattern_id)` — accelerating degree alongside geometric displacement = strong behavioral change confirmation.
 
 ### Dimension-specific drift
 
@@ -166,6 +167,8 @@ find_anomalies(pattern_id, top_n=10, include_emerging=True)
 
 Emerging entities are trending toward the anomaly boundary but haven't
 crossed yet. Only act on `reliability=high` forecasts.
+
+If edge table available: `contagion_score_batch(emerging_keys, pattern_id)` — emerging entities with high neighborhood contamination are higher-priority early warnings than those with clean neighborhoods.
 
 ---
 

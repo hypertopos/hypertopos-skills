@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Requires hypertopos MCP server. Designed for Claude Code and compatible agents.
 metadata:
   author: Karol Kędzia
-  version: 0.1.0
+  version: 0.2.0
   mcp-server: hypertopos
 ---
 
@@ -116,6 +116,8 @@ to compare event counts across time windows. Faster than `dive_solid` for
 initial burst detection — `dive_solid` is entity-level temporal history while
 windowed aggregate gives per-entity counts across the full population in one call.
 
+If edge table available (`edge_stats` returns `has_edge_table: true`), `degree_velocity(key, pattern_id)` corroborates burst timing — accelerating degree alongside event spike = strong behavioral change.
+
 ## Neighbor contamination
 
 A normal entity whose geometric neighbors are systematically anomalous.
@@ -123,7 +125,9 @@ The entity itself is NOT flagged — the signal is in the neighborhood.
 
 > **Prefer `detect_neighbor_contamination`** if available — it uses inverted search
 > (starts from anomalies, finds contaminated normals) which is more effective than
-> the manual recipes below. Use manual recipes only as fallback.
+> the manual recipes below. If edge table available, `contagion_score(key, pattern_id)`
+> or `contagion_score_batch(keys, pattern_id)` gives the exact anomalous/total neighbor
+> ratio directly. Use manual recipes only as fallback when neither tool is available.
 
 **From anomalous outward** (cheaper, try first):
 

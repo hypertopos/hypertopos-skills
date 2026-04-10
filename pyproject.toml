@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "hypertopos-skills"
-version = "0.1.0"
-description = “Agent skills for GDS sphere navigation — analyst, exploration, investigation, detection, scanning, monitoring, fraud investigation, sphere design”
+version = "0.2.0"
+description = "Agent skills for GDS sphere navigation — analyst, exploration, investigation, detection, scanning, monitoring, fraud investigation, sphere design"
 requires-python = ">=3.12"
 license = "Apache-2.0"
 

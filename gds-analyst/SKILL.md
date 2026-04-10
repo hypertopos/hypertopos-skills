@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Requires hypertopos MCP server. Designed for Claude Code and compatible agents.
 metadata:
   author: Karol Kędzia
-  version: 0.1.0
+  version: 0.2.0
   mcp-server: hypertopos
 ---
 
@@ -51,9 +51,11 @@ The skills are your toolbox — use what fits the task:
 ```
 sphere_overview()     → patterns, anomaly rates, calibration, has_temporal
 get_sphere_info()     → lines, aliases, columns
+edge_stats(pattern_id) → if event patterns exist, check edge table availability
 ```
 
 15% of budget. Note which patterns cover the hinted entity lines.
+If `edge_stats` returns `has_edge_table: true`, graph-aware tools are available (entity_flow, contagion_score, etc.).
 Do not run generic find_anomalies yet — hints drive the next step.
 
 **Temporal artifact check:** compare the temporal date range from
@@ -91,6 +93,8 @@ For every anomalous cluster discovered by targeted scans:
 explain_anomaly(key, pattern)       → WHICH dimension dominates?
 dive_solid(key, pattern)            → WHEN did it change?
 find_counterparties or get_event_polygons(key)  → WHAT caused it?
+  entity_flow(key, pattern_id)      → net flow summary before detailed counterparty drill-down
+  contagion_score(key, pattern_id)  → what fraction of neighbors are anomalous?
 compare_entities(key, normal_peer)  → HOW does it differ?
 ```
 
@@ -208,6 +212,7 @@ An investigation with 60 detection calls and 0 root cause calls is a failure.
 □ Minimum 3 hypotheses tested with explicit confirmed/rejected verdicts
 □ False positive assessed for every finding
 □ Overall estimated FP rate stated at end of report
+□ investigation_coverage checked for key suspects (if edge table available)
 □ Each finding classified: CONFIRMED / SUSPECTED / FALSE POSITIVE
 □ If has_temporal patterns: ran find_drifting_entities on each
 □ Cross-validated top findings via passive_scan or cross_pattern_profile

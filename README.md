@@ -3,7 +3,7 @@
 > Agent playbooks for navigating geometric data spheres.
 
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE)
-![Version](https://img.shields.io/badge/version-0.1.0-blue.svg)
+![Version](https://img.shields.io/badge/version-0.2.0-blue.svg)
 
 Markdown skill files that teach AI agents how to explore, investigate, detect, monitor, and build GDS spheres. Not code — decision frameworks with examples.
 

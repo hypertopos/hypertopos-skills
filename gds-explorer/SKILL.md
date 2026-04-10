@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Requires hypertopos MCP server. Designed for Claude Code and compatible agents.
 metadata:
   author: Karol Kędzia
-  version: 0.1.0
+  version: 0.2.0
   mcp-server: hypertopos
 ---
 
@@ -44,6 +44,11 @@ After these 3 calls, check for signals that guide next steps:
   (`find_anomalies(rank_by_property=<dim>)`) on every pattern including composites.
 - **`has_temporal: true`** — for each temporal pattern, consider running
   `find_drifting_entities(pattern_id, top_n=3)` to detect behavioral changes.
+- **Event patterns with edge tables** — run `edge_stats(pattern_id)` for each
+  event pattern. If `has_edge_table: true`, note that graph traversal tools
+  (`find_geometric_path`, `discover_chains`) are available for that pattern.
+  The stats (row_count, unique_from/to, avg_degree) help estimate graph density
+  before committing to path-finding or chain discovery calls.
 
 **MANDATORY: always run `find_clusters` on every anchor pattern during
 orientation.** Population archetypes reveal structural segments (e.g. airport
@@ -80,7 +85,7 @@ outlier clusters into population mu/sigma — raw profiles reveal them.
 |---|---|
 | Entity line has status/default/churn/risk property | Go to gds-investigator for ground truth validation — highest priority |
 | `calibration_health = poor` | `recalibrate(pattern_id)` before trusting anomaly results |
-| `geometry_mode = binary` | Skip anomaly tools. Use `find_hubs` + `find_neighborhood(entity, pattern, max_hops=2)` + `get_centroid_map(pattern, group_by_line=X)` |
+| `geometry_mode = binary` | Skip anomaly tools. Use `find_hubs` + `find_neighborhood(entity, pattern, max_hops=2)` + `get_centroid_map(pattern, group_by_line=X)`. If pattern has edge table (`edge_stats` returns `has_edge_table: true`), prefer `find_geometric_path(from, to, pattern)` for entity-to-entity reachability and `discover_chains(entity, pattern)` for temporal chain discovery — both are faster than polygon-edge BFS and score paths by geometric coherence |
 | `inactive_ratio > 0.30` | `is_anomaly = true` means "active entity", not "problem" — verify with `contrast_populations` |
 | Multiple patterns on same entity line | Signal dilution risk. Check `anomaly_summary` on each. If recall is low, consider entity line isolation |
 | Composite patterns present | Priority check. Composites surface subgroup-level anomalies invisible at anchor level. Rank by per-transaction dims (avg, max) not just count |
@@ -104,6 +109,15 @@ outlier clusters into population mu/sigma — raw profiles reveal them.
 | "Event volume per group?" | `aggregate(event_pattern, group_by_line=X)` |
 | "Which groups have anomalous events?" | `aggregate(event_pattern, group_by_line=X, geometry_filters={"is_anomaly": true})` |
 | "Graph structure for binary FK?" | `find_neighborhood(entity, pattern, max_hops=2)` |
+| "Edge table density / graph stats?" | `edge_stats(pattern_id)` — row_count, unique_from/to, avg_degree |
+| "How are two entities connected?" | `find_geometric_path(from_key, to_key, pattern_id)` — beam search scored by geometric coherence |
+| "Transaction chains from this entity?" | `discover_chains(primary_key, pattern_id)` — temporal BFS on edge table, no pre-built chains needed |
+| "What is this entity's net flow?" | `entity_flow(key, pattern_id)` — outgoing/incoming/net per counterparty |
+| "How contaminated is this neighborhood?" | `contagion_score(key, pattern_id)` — anomalous neighbor ratio (0-1) |
+| "Is connection rate changing?" | `degree_velocity(key, pattern_id)` — accelerating/decelerating degree over time |
+| "Have I explored enough?" | `investigation_coverage(key, pattern_id, explored_keys)` — explored vs unexplored counterparties |
+| "Which entities bridge clusters?" | `cluster_bridges(pattern_id, n_clusters=5)` — cross-cluster intermediaries |
+| "Are specific transactions anomalous?" | `anomalous_edges(from_key, to_key, pattern_id)` — event-level scoring per edge |
 
 ---
 

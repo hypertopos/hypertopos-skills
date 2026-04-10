@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Requires hypertopos MCP server. Designed for Claude Code and compatible agents.
 metadata:
   author: Karol Kędzia
-  version: 0.1.0
+  version: 0.2.0
   mcp-server: hypertopos
 ---
 
@@ -46,6 +46,7 @@ the most complete picture; skipping one leaves that category unchecked.
 | Patterns with `has_temporal: true` | Temporal trajectory shape |
 | Categorical properties (nation, segment, region) | Population segment shift |
 | Sphere has aliases (`get_sphere_info` shows aliases) | Alias anomaly scan — **mandatory** |
+| Pattern has edge table (`edge_stats` returns `has_edge_table: true`) | `contagion_score_batch` for neighbor contamination via transaction graph |
 
 ---
 
@@ -105,16 +106,16 @@ finding type — do not collapse with multi-source findings.
 **Common mistake:** using threshold=2 (finds agreement). Here you need threshold=1
 (finds discrepancy).
 
+**Complementary:** For spheres with clear cluster structure, `cluster_bridges(pattern_id)` surfaces entities that straddle cluster boundaries — these often manifest as cross-pattern discrepancies (anomalous in one cluster's context, normal in another's).
+
 ## Geometric neighbor contamination
 
 **What it finds:** normal entities whose geometric neighbors are systematically
 anomalous. The target is NORMAL — invisible to any anomaly scan.
 
-> **Prefer `detect_neighbor_contamination`** — it uses inverted search (starts from
-> anomalous entities, finds their normal neighbors, checks contamination rate) which
-> is more effective than the manual recipe below. The `sample_size` parameter means
-> "anomalous entities to start from". Use the manual recipe only if `detect_*` tools
-> are unavailable.
+> **Prefer (in order):** (1) `detect_neighbor_contamination` — inverted search, most effective.
+> (2) `contagion_score_batch(candidate_keys, pattern_id)` — if edge table available, computes
+> exact anomalous/total neighbor ratio via transaction graph. (3) Manual recipe below — fallback.
 
 **Manual recipe** (fallback): run `find_similar_entities` on at least 10 entities
 (5 anomalous + 5 normal).

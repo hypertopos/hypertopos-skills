@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Requires hypertopos MCP server. Designed for Claude Code and compatible agents.
 metadata:
   author: Karol Kędzia
-  version: 0.1.0
+  version: 0.2.0
   mcp-server: hypertopos
 ---
 
@@ -33,6 +33,20 @@ Find the best pattern. Go deep. Validate against ground truth if available.
 
 Your report should include a recall/precision table when ground truth exists.
 Without it, the investigation is incomplete.
+
+### Prerequisites check
+
+Before network-dependent investigation steps (counterparties, paths, chains),
+verify the pattern has edge data:
+
+```
+edge_stats(pattern_id) -> row_count, unique_from, unique_to, avg_degree
+```
+
+If `edge_stats` returns `null`, the pattern has no edge table — skip all
+edge-dependent tools (`find_counterparties`, `find_geometric_path`,
+`discover_chains`, `extract_chains`, `find_chains_for_entity`) and note
+"no edge data available" in the report.
 
 ---
 
@@ -101,8 +115,14 @@ observation, not a finding. The root cause chain goes deeper:
 explain_anomaly -> dominant dimension identified
 dive_solid -> WHEN did this dimension change?
   If dive_solid returns no data, skip — report temporal analysis unavailable.
+  If edge table available: degree_velocity(key, pattern_id) -> did connection rate also change?
 get_event_polygons or find_counterparties -> WHAT happened in that period?
+  entity_flow(key, pattern_id) -> net flow summary per counterparty (source/sink/mule role)
+  contagion_score(key, pattern_id) -> what fraction of neighbors are anomalous?
 compare_entities with a normal peer -> HOW does this entity differ?
+find_geometric_path(from_key, to_key, pattern_id) -> HOW are two anomalous entities connected?
+  Use when two entities share anomaly dimensions — traces the geometric path between them.
+  scoring="geometric" (default) ranks by delta coherence; "anomaly" ranks by anomaly density along path.
 ```
 
 Always report the repair set from `explain_anomaly`. Format:
@@ -117,7 +137,13 @@ cross_pattern_profile(key, line_id)     -> multi-source risk overview
 goto(key, line_id) -> get_polygon(pattern_id) -> anomaly dimensions
 dive_solid(key, pattern_id)             -> temporal history
 find_similar_entities(key, pattern_id)  -> geometric neighbors
-find_counterparties(key, event_line, from_col, to_col) -> network (if applicable)
+find_counterparties(key, event_line, from_col, to_col, pattern_id) -> network + amount aggregates
+entity_flow(key, pattern_id)           -> net flow per counterparty (source/sink/mule)
+anomalous_edges(key, counterparty, pattern_id) -> event-level scoring of specific transactions
+discover_chains(key, pattern_id)        -> runtime chain discovery (no pre-built chains needed)
+  Works directly on the edge table via temporal BFS. Use when chain lines
+  are unavailable or you want chains from a specific entity without full extract.
+  Tune min_hops (default 2) and direction ("forward"/"backward"/"both").
 ```
 
 `source_count >= 2` = investigate thoroughly. `source_count == 1` = likely FP.
@@ -134,6 +160,9 @@ For every major finding, form an explicit hypothesis and test it:
 **Result:** [what the tool returned]
 **Verdict:** Confirmed / Rejected / Partially confirmed
 ```
+
+Example: "Entity X drives network-wide anomaly spread."
+Test: `propagate_influence([X], pattern_id, max_depth=3)` — if 50+ affected entities with decaying influence scores, confirmed.
 
 Minimum 3 cycles per investigation. Rejected hypotheses are valuable.
 
@@ -180,9 +209,12 @@ Include this in the report summary.
 |---|---|
 | `is_anomaly` tells you THAT, not WHY | Check `anomaly_dimensions` via explain_anomaly |
 | `find_similar_entities` finds shape twins, not transaction partners | Use `find_counterparties` for network relationships |
+| Using `find_chains_for_entity` when chain lines do not exist | Use `discover_chains` — works on edge table directly, no pre-built chains needed |
+| Calling edge-dependent tools without checking edge availability | Run `edge_stats(pattern_id)` first — null means no edges |
 | `goto()` then `get_polygon()` in parallel | Always sequential — goto sets position, get_polygon reads it |
 | Binary geometry has identical deltas for all anomalies | Use aggregate counts instead |
 | "High burst" without root cause | `dive_solid` + `find_counterparties` to trace the why |
+| Closing investigation without checking network coverage | `investigation_coverage(key, pattern_id, explored_keys)` — confirms explored vs unexplored counterparties |
 
 ---
 
