@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Requires hypertopos MCP server. Designed for Claude Code and compatible agents.
 metadata:
   author: Karol Kędzia
-  version: 0.2.0
+  version: 0.2.2
   mcp-server: hypertopos
 ---
 
@@ -168,7 +168,7 @@ find_anomalies(pattern_id, top_n=10, include_emerging=True)
 Emerging entities are trending toward the anomaly boundary but haven't
 crossed yet. Only act on `reliability=high` forecasts.
 
-If edge table available: `contagion_score_batch(emerging_keys, pattern_id)` — emerging entities with high neighborhood contamination are higher-priority early warnings than those with clean neighborhoods.
+If edge table available: `contagion_score_batch(emerging_keys, pattern_id)` — emerging entities with high neighborhood contamination are higher-priority early warnings than those with clean neighborhoods. Pass `timestamp_cutoff` (Unix seconds) to compare contagion at the previous monitor tick vs now — a jump between the two is a hard alert signal.
 
 ---
 

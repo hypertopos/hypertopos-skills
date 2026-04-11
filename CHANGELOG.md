@@ -4,6 +4,12 @@ All notable changes to `hypertopos-skills` will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.2.2] — 2026-04-11
+
+### Changed
+
+- **gds-fraud-investigator**, **gds-investigator**, **gds-detective**, **gds-analyst**, **gds-monitor**, **gds-scanner** — document the new `timestamp_cutoff` as-of-graph-reconstruction parameter on the edge-table graph primitives. Each skill gets a one-line note alongside the existing recipe explaining how to reconstruct contagion / flow / influence state at a prior point in time.
+
 ## [0.2.1] — 2026-04-11
 
 ### Changed

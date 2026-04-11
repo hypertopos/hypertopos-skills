@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Requires hypertopos MCP server. Designed for Claude Code and compatible agents.
 metadata:
   author: Karol Kędzia
-  version: 0.2.0
+  version: 0.2.2
   mcp-server: hypertopos
 ---
 
@@ -124,6 +124,8 @@ find_geometric_path(from_key, to_key, pattern_id) -> HOW are two anomalous entit
   Use when two entities share anomaly dimensions — traces the geometric path between them.
   scoring="geometric" (default) ranks by delta coherence; "anomaly" ranks by anomaly density along path.
 ```
+
+**As-of graph reconstruction:** for incident forensics, all six edge-table graph primitives (`contagion_score`, `contagion_score_batch`, `entity_flow`, `degree_velocity`, `propagate_influence`, `find_counterparties`) accept an optional `timestamp_cutoff` parameter (Unix seconds). When set, only edges with `timestamp <= cutoff` are considered. Use this to answer *"what did the neighborhood look like at time T?"* — e.g. pass the incident timestamp to contagion_score to see contamination state on that day, not today.
 
 Always report the repair set from `explain_anomaly`. Format:
 "Repair: zero {repair_size} dims ({labels}) -> residual {residual_norm} (below theta={theta_norm})."

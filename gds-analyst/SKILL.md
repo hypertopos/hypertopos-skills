@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Requires hypertopos MCP server. Designed for Claude Code and compatible agents.
 metadata:
   author: Karol Kędzia
-  version: 0.2.0
+  version: 0.2.2
   mcp-server: hypertopos
 ---
 
@@ -55,7 +55,7 @@ edge_stats(pattern_id) → if event patterns exist, check edge table availabilit
 ```
 
 15% of budget. Note which patterns cover the hinted entity lines.
-If `edge_stats` returns `has_edge_table: true`, graph-aware tools are available (entity_flow, contagion_score, etc.).
+If `edge_stats` returns `has_edge_table: true`, graph-aware tools are available (entity_flow, contagion_score, etc.). All six edge-table graph primitives (contagion_score, contagion_score_batch, entity_flow, degree_velocity, propagate_influence, find_counterparties) accept an optional `timestamp_cutoff` parameter (Unix seconds) to reconstruct graph state as of a prior point in time — use it when the investigation hint names a specific incident date.
 Do not run generic find_anomalies yet — hints drive the next step.
 
 **Temporal artifact check:** compare the temporal date range from

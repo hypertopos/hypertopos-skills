@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Requires hypertopos MCP server with a financial transaction sphere (account, pair, chain patterns).
 metadata:
   author: Karol Kędzia
-  version: 0.2.1
+  version: 0.2.2
   mcp-server: hypertopos
 ---
 
@@ -87,6 +87,8 @@ After passive_scan, batch-score the top suspects by neighborhood contamination:
 contagion_score_batch(suspect_keys, pattern_id)
 ```
 Entities with high contagion ratio are network hubs, not isolated actors — prioritize them.
+
+**As-of reconstruction:** `contagion_score`, `contagion_score_batch`, `entity_flow`, `degree_velocity`, `propagate_influence`, and `find_counterparties` all accept an optional `timestamp_cutoff` parameter (Unix seconds). When set, only edges with `timestamp <= cutoff` are considered — use this to reconstruct what an entity's neighborhood looked like at the time of a known incident, or to validate a detection recipe retroactively against a prior snapshot of the graph.
 
 If `passive_scan` is not available, manually combine:
 ```

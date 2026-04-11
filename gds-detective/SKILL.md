@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Requires hypertopos MCP server. Designed for Claude Code and compatible agents.
 metadata:
   author: Karol Kędzia
-  version: 0.2.0
+  version: 0.2.2
   mcp-server: hypertopos
 ---
 
@@ -128,6 +128,12 @@ The entity itself is NOT flagged — the signal is in the neighborhood.
 > the manual recipes below. If edge table available, `contagion_score(key, pattern_id)`
 > or `contagion_score_batch(keys, pattern_id)` gives the exact anomalous/total neighbor
 > ratio directly. Use manual recipes only as fallback when neither tool is available.
+>
+> **As-of reconstruction:** `contagion_score`, `contagion_score_batch`, and
+> `degree_velocity` (as well as the other edge-table graph primitives) accept an
+> optional `timestamp_cutoff` parameter (Unix seconds). When set, only edges with
+> `timestamp <= cutoff` are considered — use this to reconstruct neighbor
+> contamination or burst velocity as they looked on the day of a known incident.
 
 **From anomalous outward** (cheaper, try first):
 

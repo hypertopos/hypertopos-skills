@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Requires hypertopos MCP server. Designed for Claude Code and compatible agents.
 metadata:
   author: Karol Kędzia
-  version: 0.2.0
+  version: 0.2.2
   mcp-server: hypertopos
 ---
 
@@ -116,6 +116,12 @@ anomalous. The target is NORMAL — invisible to any anomaly scan.
 > **Prefer (in order):** (1) `detect_neighbor_contamination` — inverted search, most effective.
 > (2) `contagion_score_batch(candidate_keys, pattern_id)` — if edge table available, computes
 > exact anomalous/total neighbor ratio via transaction graph. (3) Manual recipe below — fallback.
+>
+> **As-of retrospective scan:** `contagion_score_batch` (and the other five
+> edge-table graph primitives) accepts an optional `timestamp_cutoff` parameter
+> (Unix seconds). Use it to re-run the scan as the graph looked on a prior date —
+> useful for validating new detection recipes against historical snapshots without
+> reopening the sphere at a different manifest version.
 
 **Manual recipe** (fallback): run `find_similar_entities` on at least 10 entities
 (5 anomalous + 5 normal).
