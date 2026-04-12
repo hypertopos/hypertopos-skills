@@ -5,7 +5,7 @@
   },
   "metadata": {
     "description": "Agent skills for navigating Geometric Data Spheres via hypertopos MCP",
-    "version": "0.2.2"
+    "version": "0.3.0"
   },
   "plugins": [
     {

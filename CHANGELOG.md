@@ -4,6 +4,12 @@ All notable changes to `hypertopos-skills` will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.3.0] — 2026-04-12
+
+### Changed
+
+- **gds-sphere-designer** — added 5 troubleshooting rows covering edge table auto-detect pitfalls (metadata timestamp, narrow amount heuristic), NB-Split contagion resolution, and temporal build performance guidance. Temporal threshold raised from 2min to 5min with `--no-temporal` iteration strategy. Skill version bumped to 0.3.0.
+
 ## [0.2.2] — 2026-04-11
 
 ### Changed
