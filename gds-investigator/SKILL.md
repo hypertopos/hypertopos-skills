@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Requires hypertopos MCP server. Designed for Claude Code and compatible agents.
 metadata:
   author: Karol Kędzia
-  version: 0.2.2
+  version: 0.2.3
   mcp-server: hypertopos
 ---
 
@@ -103,6 +103,12 @@ Check BOTH ends: if top anomalies all have negative deltas (below mean),
 For top 3 suspects: entity 360 (below)
 Form hypotheses about what drives anomalies, test them
 ```
+
+---
+
+## FDR control and diverse selection
+
+When tracing root causes, use `fdr_alpha=0.05` on `find_anomalies` to ensure the initial suspect list has controlled false discovery rate — chasing false positives through the full root-cause chain wastes the entire investigation budget. Use `select="diverse"` when requesting K>10 results to surface anomalies driven by different dimensions rather than clustering on one dominant failure mode; this ensures the investigation covers distinct root-cause categories. Both parameters also apply to `attract_boundary`, `find_hubs`, and `find_drifting_entities`.
 
 ---
 

@@ -4,6 +4,12 @@ All notable changes to `hypertopos-skills` will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.3.1] — 2026-04-12
+
+### Changed
+
+- **gds-fraud-investigator**, **gds-investigator**, **gds-detective**, **gds-scanner**, **gds-explorer** — document the new `fdr_alpha` (Benjamini-Hochberg FDR control) and `select="diverse"` (submodular facility location) parameters on `find_anomalies`, `attract_boundary`, `find_hubs`, and `find_drifting_entities`. Each skill frames the guidance for its audience: fraud investigation emphasizes false-positive cost and typological coverage, scanner emphasizes multiplicity at scale, explorer contrasts the two selection modes for orientation.
+
 ## [0.3.0] — 2026-04-12
 
 ### Changed

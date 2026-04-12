@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Requires hypertopos MCP server with a financial transaction sphere (account, pair, chain patterns).
 metadata:
   author: Karol Kędzia
-  version: 0.2.2
+  version: 0.2.3
   mcp-server: hypertopos
 ---
 
@@ -98,6 +98,10 @@ If `passive_scan` is not available, manually combine:
 3. find_anomalies("chain_pattern", top_n=50)        → anomalous chains → expand chain_keys
 4. Intersect: accounts in 2+ sources = high confidence
 ```
+
+### FDR control and diverse selection
+
+When using `find_anomalies` for fraud screening, set `fdr_alpha=0.05` to apply Benjamini-Hochberg FDR control — false positives waste investigator time and erode trust in the alert pipeline, so controlling the false discovery rate is critical. When requesting K>10 results, use `select="diverse"` to surface different fraud typologies (structuring, layering, round-tripping) instead of 50 variants of the same high-volume pattern; this leverages submodular facility location to maximize typological coverage in the result set. Both parameters also apply to `attract_boundary`, `find_hubs`, and `find_drifting_entities`.
 
 ### Recipe: Risk Triage
 

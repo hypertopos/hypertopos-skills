@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Requires hypertopos MCP server. Designed for Claude Code and compatible agents.
 metadata:
   author: Karol Kędzia
-  version: 0.2.2
+  version: 0.2.3
   mcp-server: hypertopos
 ---
 
@@ -21,6 +21,12 @@ the sphere at hand — the shapes are universal, the thresholds are starting
 points.
 
 For concrete output examples of each recipe, see [references/examples.md](references/examples.md).
+
+---
+
+## FDR control and diverse selection
+
+Detection recipes that start with `find_anomalies` benefit from two parameters: `fdr_alpha` applies Benjamini-Hochberg FDR control so that the candidate list has a bounded false discovery rate before expensive downstream recipe steps run, and `select="diverse"` uses submodular facility location to return candidates spanning different anomaly signatures rather than redundant near-duplicates. Set `fdr_alpha=0.05` when the recipe feeds into manual verification or cross-pattern confirmation; use `select="diverse"` when the goal is to discover the range of anomaly types present, not just the most extreme instances. Both parameters also work on `attract_boundary`, `find_hubs`, and `find_drifting_entities`.
 
 ---
 

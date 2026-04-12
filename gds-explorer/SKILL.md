@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Requires hypertopos MCP server. Designed for Claude Code and compatible agents.
 metadata:
   author: Karol Kędzia
-  version: 0.2.0
+  version: 0.2.1
   mcp-server: hypertopos
 ---
 
@@ -126,6 +126,12 @@ outlier clusters into population mu/sigma — raw profiles reveal them.
 - `sample_size=5000` for `find_clusters` on populations > 10K
 - `sample_size=50000` for heavy `aggregate` on populations > 500K
 - `goto()` then `get_polygon()` — always sequential, never parallel
+
+## Selection modes for anomaly results
+
+`find_anomalies`, `attract_boundary`, `find_hubs`, and `find_drifting_entities` support two selection modes: the default `select="top_norm"` returns the most extreme entities by delta norm, while `select="diverse"` applies submodular facility location to return a geometrically spread set covering different anomaly types. During exploration, `top_norm` answers "show me the most extreme" and `diverse` answers "show me all the kinds of anomaly present." An optional `fdr_alpha` parameter applies Benjamini-Hochberg FDR control to filter statistically insignificant results — useful when handing results to specialist skills, but exploratory orientation can leave it unset to see the full landscape.
+
+---
 
 ## Avoiding common exploration traps
 

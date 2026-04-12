@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Requires hypertopos MCP server. Designed for Claude Code and compatible agents.
 metadata:
   author: Karol Kędzia
-  version: 0.2.2
+  version: 0.2.3
   mcp-server: hypertopos
 ---
 
@@ -34,6 +34,12 @@ the most complete picture; skipping one leaves that category unchecked.
 >   (path_length - displacement). No need to manually call `find_drifting_entities` at
 >   multiple rank offsets. The `displacement_ranks` parameter is deprecated/ignored;
 >   `top_n_per_range` is now a total results cap.
+
+---
+
+## FDR control and diverse selection
+
+Large-population scans should always set `fdr_alpha` (e.g. `fdr_alpha=0.05`) on `find_anomalies`, `attract_boundary`, `find_hubs`, and `find_drifting_entities` because the multiple-testing problem is worse at scale — without FDR control, a 100K-entity scan produces hundreds of false discoveries that contaminate downstream cross-pattern and contamination analysis. Use `select="diverse"` to surface the distinct types of anomaly present in the population rather than ranking purely by severity; this applies submodular facility location to maximize geometric coverage across the result set, which is critical when the scan feeds into segment shift or trajectory shape analysis where variety matters more than extremity.
 
 ---
 
