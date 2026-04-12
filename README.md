@@ -1,11 +1,11 @@
 # hypertopos-skills
 
-> Agent playbooks for navigating geometric data spheres.
+> Investigation workflows for AI agents exploring geometric data spaces.
 
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE)
-![Version](https://img.shields.io/badge/version-0.3.0-blue.svg)
+![Version](https://img.shields.io/badge/version-0.3.1-%235500FF.svg)
 
-Markdown skill files that teach AI agents how to explore, investigate, detect, monitor, and build GDS spheres. Not code — decision frameworks with examples.
+Structured behaviors that guide AI agents through exploration, investigation, detection, and monitoring of geometric data spaces. Not code — decision frameworks with examples.
 
 ## Skills
 
@@ -58,6 +58,10 @@ Copy the `gds-*/` skill folders into your agent's skills directory (e.g. `.claud
 ## Design
 
 Skills are intentionally reactive — decision frameworks, not rigid checklists. MCP provides the tools and sphere data. Skills provide judgment, scope, and workflows.
+
+## Status
+
+Research-stage project. Skills and workflows are actively evolving.
 
 ## License
 
