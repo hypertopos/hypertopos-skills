@@ -129,7 +129,18 @@ compare_entities with a normal peer -> HOW does this entity differ?
 find_geometric_path(from_key, to_key, pattern_id) -> HOW are two anomalous entities connected?
   Use when two entities share anomaly dimensions — traces the geometric path between them.
   scoring="geometric" (default) ranks by delta coherence; "anomaly" ranks by anomaly density along path.
+find_novel_entities(pattern_id) -> WHO deviates most from neighborhood expectation?
+  High novelty_score = entity doesn't behave like its neighbors. Requires edge table.
+find_witness_cohort(key, pattern_id) -> peers with similar anomaly profile
 ```
+
+**Graph confirmation chain** (when edge table exists):
+After `explain_anomaly`, check graph support to distinguish isolated anomalies from patterns:
+1. `contagion_score(key, pattern_id)` — what fraction of neighbors are anomalous?
+2. `find_witness_cohort(key, pattern_id)` — which peers share the anomaly profile?
+3. `find_novel_entities(pattern_id, top_n=10)` — who deviates most from neighborhood?
+
+High contagion + large witness cohort = confirmed pattern (not isolated outlier).
 
 **As-of graph reconstruction:** for incident forensics, all six edge-table graph primitives (`contagion_score`, `contagion_score_batch`, `entity_flow`, `degree_velocity`, `propagate_influence`, `find_counterparties`) accept an optional `timestamp_cutoff` parameter (Unix seconds). When set, only edges with `timestamp <= cutoff` are considered. Use this to answer *"what did the neighborhood look like at time T?"* — e.g. pass the incident timestamp to contagion_score to see contamination state on that day, not today.
 

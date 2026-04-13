@@ -222,6 +222,37 @@ anomalies, remove or isolate it. For temporal, isolate relational dims
 AML-specific features (precomputed dims, graph features, chain lines, Mahalanobis)
 are documented in [references/advanced-features.md](references/advanced-features.md).
 
+### Generalized dimension blocks (g/t/s)
+
+Three optional dimension block types enrich the shape vector beyond relational counts:
+
+| Block | YAML key | Normalization | Use case |
+|-------|----------|---------------|----------|
+| **g** (geographic) | `geo_properties: [lat, lon]` | mu/sigma | Spatial patterns |
+| **t** (metric) | `metric_properties: [balance, credit_limit]` | mu/sigma | Numeric entity attributes |
+| **s** (semantic) | `semantic_dim: {columns: [emb], n_components: 8}` | PCA + mu/sigma | Embedding reduction |
+
+All optional. Dimension names are prefixed (`g:lat`, `t:balance`, `s:pc0`) in
+`explain_anomaly` output. Columns must exist on the entity line's source data.
+
+```yaml
+patterns:
+  account_pattern:
+    type: anchor
+    entity_line: accounts
+    relations: auto
+    metric_properties:
+      - balance
+      - credit_limit
+    geo_properties:
+      - branch_lat
+      - branch_lon
+```
+
+When to use: entity has numeric attributes (balance, age, rating) or spatial
+coordinates that should influence anomaly detection. Without these blocks, the
+shape vector only captures relational structure (who is connected to whom).
+
 ### Edge table design
 
 The edge table stores per-event from/to relationships, enabling runtime graph

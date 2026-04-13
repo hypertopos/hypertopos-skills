@@ -132,13 +132,17 @@ Full investigation of a single suspect:
 3. find_counterparties(pk, "transactions",
      "from_account", "to_account",
      pattern_id="account_pattern")        → WHO they transact with
-4. dive_solid(pk, "account_pattern")      → WHEN behavior changed
+4. contagion_score(pk, "tx_pattern")      → what fraction of neighbors are anomalous
+5. find_witness_cohort(pk, "tx_pattern")  → peers with similar anomaly profile
+6. dive_solid(pk, "account_pattern")      → WHEN behavior changed
 ```
 
 Key signals:
 - `anomaly_dimensions` shows WHICH behavioral features drive the detection
 - Counterparties with `is_anomaly=true` = network confirmation
+- `contagion_score > 0.3` + `witness_cohort_size > 3` = high-confidence pattern
 - Temporal burst → silence pattern = classic placement/layering
+- `find_novel_entities(pattern_id, top_n=20)` finds accounts deviating most from neighborhood expectation — useful for initial screening alongside passive_scan
 
 Before closing: `investigation_coverage(pk, pattern_id, explored_keys)` — confirms explored vs unexplored counterparties. Low coverage means additional network exploration warranted.
 

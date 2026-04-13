@@ -4,6 +4,16 @@ All notable changes to `hypertopos-skills` will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+## [0.3.2] — 2026-04-13
+
+### Changed
+
+- **gds-sphere-designer** — added generalized dimension blocks (g/t/s) section documenting `geo_properties`, `metric_properties`, `semantic_dim` YAML keys with normalization table and YAML example.
+- **gds-investigator** — added graph confirmation chain (`contagion_score` → `find_witness_cohort` → `find_novel_entities`) to Entity 360 and Root cause chain sections. Documents confidence escalation from isolated anomaly to confirmed pattern.
+- **gds-fraud-investigator** — added `contagion_score` and `find_witness_cohort` steps to Entity 360 recipe. Added `find_novel_entities` as screening complement to passive_scan.
+
 ## [0.3.1] — 2026-04-12
 
 ### Changed
