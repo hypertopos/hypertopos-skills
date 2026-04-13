@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Requires hypertopos MCP server. Designed for Claude Code and compatible agents.
 metadata:
   author: Karol Kędzia
-  version: 0.2.1
+  version: 0.3.3
   mcp-server: hypertopos
 ---
 
@@ -69,8 +69,8 @@ get_line_profile(entity_line, dim_property)
 
 Check 2-3 key dimensions per pattern. What to look for:
 - **MAX >> P99** — an extreme cluster exists that find_anomalies may rank low
-  (e.g. max avg_late_days=400 when p99=50 means a hidden cluster of
-  extremely late entities that delta_norm ranks below zero-delay entities)
+  (e.g. max <some_dimension>=400 when p99=50 means a hidden cluster of
+  extreme entities that delta_norm ranks below the majority)
 - **MIN << P01** — same in the other direction
 - **Bimodal split** — two populations mixed in one pattern
 
@@ -89,7 +89,7 @@ outlier clusters into population mu/sigma — raw profiles reveal them.
 | `inactive_ratio > 0.30` | `is_anomaly = true` means "active entity", not "problem" — verify with `contrast_populations` |
 | Multiple patterns on same entity line | Signal dilution risk. Check `anomaly_summary` on each. If recall is low, consider entity line isolation |
 | Composite patterns present | Priority check. Composites surface subgroup-level anomalies invisible at anchor level. Rank by per-transaction dims (avg, max) not just count |
-| Patterns on isolated entity lines (e.g. `accounts_stress`) | `passive_scan` and `composite_risk` auto-discover sibling lines (same `source_id`). If sphere lacks `source_id` (pre-0.1.x), use explicit sources or per-entity `goto` + `get_polygon` for cross-line triangulation |
+| Patterns on isolated entity lines (e.g. `<entity_line_variant>`) | `passive_scan` and `composite_risk` auto-discover sibling lines (same `source_id`). If sphere lacks `source_id` (pre-0.1.x), use explicit sources or per-entity `goto` + `get_polygon` for cross-line triangulation |
 | Aliases with `has_cutting_plane = true` | For each alias, run `attract_boundary(alias_id, pattern_id, direction="in")` AND `attract_boundary(alias_id, pattern_id, direction="out")` — both directions give the most complete picture |
 
 ---

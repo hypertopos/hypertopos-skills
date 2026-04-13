@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Requires hypertopos MCP server. Designed for Claude Code and compatible agents.
 metadata:
   author: Karol Kędzia
-  version: 0.2.2
+  version: 0.3.3
   mcp-server: hypertopos
 ---
 
@@ -113,8 +113,8 @@ top drifters:
 
 ```
 dive_solid(key, pattern_id) -> compare first vs last slice deltas
--> Which dimension changed most? n_suppliers spike = new relationships.
-   burst_monthly spike = activity change. total_spend spike = value shift.
+-> Which dimension changed most? (e.g., counterparty count spike = new relationships,
+   burst metric spike = activity change, value metric spike = monetary shift)
 ```
 
 If top drifters ALL show the same dominant dimension (e.g. burst_monthly),
@@ -151,7 +151,7 @@ find_regime_changes(pattern_id, n_regimes=5)
 
 - 1 unidirectional shift = regime change (external event, policy change)
 - 2 shifts in opposite directions = oscillation (seasonal, cyclical)
-- ALL accounts dropping simultaneously = **data boundary artifact**, not real change
+- ALL entities dropping simultaneously = **data boundary artifact**, not real change
 - Multiple small shifts = gradual evolution
 
 Use `compare_time_windows(pattern_id, pre_start, pre_end, post_start, post_end)`

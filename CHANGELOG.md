@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.3.3] — 2026-04-13
+
+### Added
+
+- **gds-investigator** — Investigation Memory (checked/leads/dead_ends lists, coverage protocol, deduplication, handoff), Failure Guards (depth limit, strength gate, contagion gate, consecutive call limit, stale lead expiry, force-switch), Decision Scoring (priority queue heuristic with anomaly_strength + graph_support + temporal_signal + novelty_bonus). Guidance for `dim_mask`, `metric="cosine"`, and `find_anomalies(metric="Linf")`.
+- **gds-fraud-investigator** — same three sections adapted for the 3-phase fraud workflow. Entity 360 recipe extended with `find_novel_entities` as step 6 and `investigation_coverage` as step 8 in the graph confirmation chain. Triage levels (CRITICAL/HIGH/MEDIUM/LOW) integrated with decision scoring. All recipes generalized to use angle-bracket placeholders instead of sphere-specific names.
+
+### Changed
+
+- **6 skills** (investigator, fraud-investigator, detective, explorer, monitor, sphere-designer) — removed sphere-specific hardcoded dimension names, entity keys, pattern names, and column names from guidance text. Labeled examples preserved. Skill versions bumped to 0.3.3.
+
 ## [0.3.2] — 2026-04-13
 
 ### Changed

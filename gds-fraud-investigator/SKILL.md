@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Requires hypertopos MCP server with a financial transaction sphere (account, pair, chain patterns).
 metadata:
   author: Karol Kędzia
-  version: 0.2.3
+  version: 0.3.3
   mcp-server: hypertopos
 ---
 
@@ -27,7 +27,7 @@ Before using graph traversal tools (`find_geometric_path`, `discover_chains`), v
 sphere has an edge table for the relevant event pattern:
 
 ```
-edge_stats(pattern_id="transaction_pattern")
+edge_stats(pattern_id="<event_pattern>")
 ```
 
 If this returns edge counts and degree stats, graph tools are available. If it errors or
@@ -56,7 +56,7 @@ the anomaly — the geometry already normalizes for scale.
 One call screens the entire population:
 
 ```
-passive_scan("accounts", threshold=2)
+passive_scan("<anchor_line>", threshold=2)
 ```
 
 This reads all geometry layers (account, pair, chain patterns) and returns entities
@@ -70,16 +70,16 @@ flagged by 2+ independent sources. `threshold=2` = multi-source confirmed.
 
 Example — multi-source scan with mixed types:
 ```
-passive_scan(home_line_id="accounts", sources='[
-  {"type": "geometry", "pattern_id": "account_pattern"},
-  {"type": "borderline", "pattern_id": "account_pattern", "rank_threshold": 80},
-  {"type": "points", "line_id": "accounts", "rules": {"n_currencies_out": [">=", 2]}, "combine": "AND"}
+passive_scan(home_line_id="<anchor_line>", sources='[
+  {"type": "geometry", "pattern_id": "<anchor_pattern>"},
+  {"type": "borderline", "pattern_id": "<anchor_pattern>", "rank_threshold": 80},
+  {"type": "points", "line_id": "<anchor_line>", "rules": {"<suspicious_property>": [">=", 2]}, "combine": "AND"}
 ]')
 ```
 
 Auto-discover with borderline (also auto-detects graph contagion source if edge table exists):
 ```
-passive_scan(home_line_id="accounts", include_borderline=true, borderline_rank_threshold=80)
+passive_scan(home_line_id="<anchor_line>", include_borderline=true, borderline_rank_threshold=80)
 ```
 
 After passive_scan, batch-score the top suspects by neighborhood contamination:
@@ -92,11 +92,11 @@ Entities with high contagion ratio are network hubs, not isolated actors — pri
 
 If `passive_scan` is not available, manually combine:
 ```
-1. find_anomalies("account_pattern", top_n=50)     → anomalous accounts
+1. find_anomalies("<anchor_pattern>", top_n=50)     → anomalous entities
 2. For pair patterns: execute EVERY profiling_alert call (rank_by_property on each alerted dim)
-   If total_found >> 50: aggregate_anomalies("pair_pattern", group_by="account_key")
-3. find_anomalies("chain_pattern", top_n=50)        → anomalous chains → expand chain_keys
-4. Intersect: accounts in 2+ sources = high confidence
+   If total_found >> 50: aggregate_anomalies("<pair_pattern>", group_by="<anchor_key>")
+3. find_anomalies("<chain_pattern>", top_n=50)       → anomalous chains → expand chain_keys
+4. Intersect: entities in 2+ sources = high confidence
 ```
 
 ### FDR control and diverse selection
@@ -108,7 +108,7 @@ When using `find_anomalies` for fraud screening, set `fdr_alpha=0.05` to apply B
 For each suspect from Phase 1:
 
 ```
-cross_pattern_profile(suspect_key, line_id="accounts")
+cross_pattern_profile(suspect_key, line_id="<anchor_line>")
 ```
 
 Interpret the result:
@@ -122,29 +122,39 @@ Sort suspects by `risk_score` descending for investigation order.
 
 ## Phase 2 — Investigation (per suspect)
 
+> **Note:** Recipes below use angle-bracket placeholders (e.g. `<anchor_line>`, `<event_pattern>`) for sphere-specific names. Replace them with the actual line, pattern, and column names from your sphere before calling the tools.
+
 ### Recipe: Entity 360
 
 Full investigation of a single suspect:
 
 ```
 1. cross_pattern_profile(pk)              → multi-source risk overview
-2. get_polygon(pk, "account_pattern")     → anomaly_dimensions (WHY anomalous)
-3. find_counterparties(pk, "transactions",
-     "from_account", "to_account",
-     pattern_id="account_pattern")        → WHO they transact with
-4. contagion_score(pk, "tx_pattern")      → what fraction of neighbors are anomalous
-5. find_witness_cohort(pk, "tx_pattern")  → peers with similar anomaly profile
-6. dive_solid(pk, "account_pattern")      → WHEN behavior changed
+2. goto(pk, "<anchor_line>") then
+   get_polygon("<anchor_pattern>")        → anomaly_dimensions (WHY anomalous)
+3. find_counterparties(pk, "<event_line>",
+     "<from_col>", "<to_col>",
+     pattern_id="<anchor_pattern>")       → WHO they transact with
+4. contagion_score(pk, "<event_pattern>") → what fraction of neighbors are anomalous
+5. find_witness_cohort(pk, "<anchor_pattern>") → peers with similar anomaly profile
+6. find_novel_entities("<event_pattern>",
+     top_n=10, sample_size=1000)          → neighborhood deviation screen
+7. dive_solid(pk, "<anchor_pattern>")     → WHEN behavior changed
+8. investigation_coverage(pk, "<event_pattern>",
+     explored_keys=checked)               → coverage check, add unexplored to leads
 ```
+
+**Graph confirmation chain (steps 4→5→6):**
+- `contagion_score > 0.3` → neighborhood is infected, not an isolated outlier
+- `witness_cohort_size > 3` → anomaly signature is shared by non-connected peers
+- `find_novel_entities` surfaces entities whose geometry deviates from what their neighbors predict — catches entities that contagion and witness miss
+
+High contagion (>0.3) + large witness cohort + high novelty = confirmed network pattern. Low contagion (<0.2) + empty cohort = isolated anomaly, deprioritize. Borderline contagion (0.2–0.3) = expand cautiously to one hop only before deciding.
 
 Key signals:
 - `anomaly_dimensions` shows WHICH behavioral features drive the detection
 - Counterparties with `is_anomaly=true` = network confirmation
-- `contagion_score > 0.3` + `witness_cohort_size > 3` = high-confidence pattern
 - Temporal burst → silence pattern = classic placement/layering
-- `find_novel_entities(pattern_id, top_n=20)` finds accounts deviating most from neighborhood expectation — useful for initial screening alongside passive_scan
-
-Before closing: `investigation_coverage(pk, pattern_id, explored_keys)` — confirms explored vs unexplored counterparties. Low coverage means additional network exploration warranted.
 
 ### Recipe: Network Expansion
 
@@ -155,7 +165,7 @@ From a confirmed suspect, expand the investigation network:
 2. Filter anomalous counterparties        → subset with is_anomaly=true
 3. For each anomalous counterparty:
      cross_pattern_profile(cp_key)        → are THEY multi-source flagged?
-4. discover_chains(suspect, pattern_id="transaction_pattern",
+4. discover_chains(suspect, pattern_id="<event_pattern>",
      time_window_hours=72, max_hops=5)    → runtime chain discovery (preferred)
 5. Filter: chains with cyclic structure   → round-trip chains
 ```
@@ -168,7 +178,7 @@ population-level chain statistics or when the sphere has pre-built chain pattern
 **Tracing connections between two suspects:**
 ```
 find_geometric_path(from_key=suspect_A, to_key=suspect_B,
-  pattern_id="transaction_pattern", scoring="anomaly")
+  pattern_id="<event_pattern>", scoring="anomaly")
 ```
 This traces how two suspects are connected through the transaction graph. `scoring="anomaly"`
 prioritizes paths through anomalous intermediaries — the most suspicious route between them.
@@ -180,12 +190,17 @@ Use `scoring="geometric"` to find paths through geometrically unusual entities, 
 Before closing an alert, check for exculpatory evidence:
 
 ```
-1. find_similar_entities(suspect, "account_pattern",
+1. find_similar_entities(suspect, "<anchor_pattern>",
      filter_expr="is_anomaly = false", top_n=20)
-2. If 10+ normal accounts have identical shape → suspect is likely
-   a legitimate high-activity entity, not a launderer
+2. If 10+ normal entities have identical shape → suspect is likely
+   a legitimate high-activity entity, not fraudulent
 3. Check: are counterparties ALL normal? → further FP evidence
 ```
+
+**Metric and dimension focus for FP elimination:**
+- `metric="cosine"` — compare anomaly profile shape ignoring magnitude. Entities with same pattern but different scale will be cosine-close. Use when "same type of activity" matters more than "same scale."
+- `dim_mask=[<dims from anomaly_dimensions>]` — focus similarity on the dimensions that drive the anomaly, ignoring irrelevant ones. Read the target entity's `anomaly_dimensions` first, then pass those labels as the mask.
+- `find_anomalies(metric="Linf")` — rank by max single-dimension spike. Catches entities with one extreme dimension that L2 norm dilutes. Use for single-behavior typologies.
 
 ## Phase 3 — Typology Detection
 
@@ -260,7 +275,7 @@ Use these when the sphere has event patterns with edge tables (`edge_stats` retu
 3. `anomalous_edges(from_key, target_key, pattern_id, top_n=50)` — get all edges to the repeated target
 4. Check if individual amounts are below a threshold but sum exceeds it
 
-**Interpretation:** 5+ transactions to same target in 24h with amounts clustered below a round number (e.g., 9,500 when reporting threshold is 10,000) is a strong structuring signal.
+**Interpretation:** 5+ transactions to same target in 24h with amounts clustered just below a round reporting threshold is a strong structuring signal.
 
 ### R4 — Weighted Reciprocity
 
@@ -332,6 +347,65 @@ Use these when the sphere has event patterns with edge tables (`edge_stats` retu
 - ML link prediction (Node2Vec, GraphSAGE): requires training, no interpretability, no labeled data needed for hypertopos
 - Vector DB ANN: nearest neighbors but no graph awareness, no edge exclusion
 
+## Investigation Memory
+
+Maintain three lists throughout the investigation session:
+
+- **`checked[]`** — entities where Entity 360 is complete (polygon + explain + counterparties done). Never re-investigate.
+- **`leads[]`** — entities flagged by tools but not yet investigated. Each lead carries a `lead_score` (see Decision Scoring). Sources: `find_anomalies`, `passive_scan`, `find_witness_cohort`, `propagate_influence`, `investigation_coverage.unexplored_anomalous`.
+- **`dead_ends[]`** — entities investigated and found uninteresting for this thread (`delta_rank_pct < 70`, no contagion, no temporal signal). Never revisit.
+
+**Protocol:**
+1. Before investigating any entity: check `checked[]` and `dead_ends[]`. Skip if present.
+2. After each Entity 360: move entity from `leads[]` to `checked[]`.
+3. After each tool call that returns entity lists: score new entities, add to `leads[]` (deduplicating against all three lists).
+4. Call `investigation_coverage(pk, pattern_id, explored_keys=checked)` after every deep-dive. If `coverage_pct < 0.5` and `unexplored_anomalous` is non-empty, add those to `leads[]`.
+5. When delegating to another skill, pass `checked[]` as context.
+
+## Failure Guards
+
+Proactive limits to prevent runaway investigations:
+
+| Guard | Threshold | Action |
+|-------|-----------|--------|
+| **Depth limit** | 3 hops from seed entity | Stop expanding, summarize findings |
+| **Strength gate** | `delta_rank_pct < 70` | Skip entity UNLESS `contagion_score > 0.3` or in witness cohort |
+| **Contagion gate** | `contagion_score < 0.2` | Do NOT proceed to network expansion — entity is isolated |
+| **Consecutive call limit** | 3 calls to same tool on same entity | Move to next lead |
+| **Stale lead expiry** | Lead untouched for 10+ tool calls | Demote below fresh leads |
+| **Force-switch** | 5 consecutive calls with no new anomalous entities | STOP current thread, switch to highest-scoring lead |
+
+## Decision Scoring
+
+Phase 1 Risk Triage sorts by `risk_score` for initial suspect selection. Once investigation begins and graph/temporal data becomes available, `lead_score` supersedes `risk_score` as the authoritative ordering.
+
+Rank leads by composite score to decide what to investigate next:
+
+```
+lead_score = 0.35 × anomaly_strength
+           + 0.25 × graph_support
+           + 0.25 × temporal_signal
+           + 0.15 × novelty_bonus
+```
+
+| Component | Source | Value |
+|-----------|--------|-------|
+| `anomaly_strength` | `delta_rank_pct / 100` | 0.0–1.0 |
+| `graph_support` | `contagion_score` | 0.0–1.0 (0 if unchecked) |
+| `temporal_signal` | appears in `find_drifting_entities` or `detect_trajectory_anomaly` | 0.0 or 1.0 |
+| `novelty_bonus` | appears in `find_novel_entities` or `find_witness_cohort` | 0.0 or 1.0 |
+
+**Triage levels:**
+- `>= 0.7` — CRITICAL: investigate immediately
+- `>= 0.4` — HIGH: investigate in current session
+- `>= 0.2` — MEDIUM: investigate if time permits
+- `< 0.2` — LOW: skip unless explicitly asked
+
+**Protocol:**
+1. Always investigate the highest-scoring lead next.
+2. After each investigation, update scores of remaining leads (new contagion info may change `graph_support`).
+3. Report queue state: `"Next: <entity> (score X.XX) | Queue: N leads remaining"`
+
 ## Common Pitfalls
 
 - `is_anomaly` alone misses most fraud — check each pattern separately and combine signals
@@ -396,7 +470,7 @@ Verify edge table exists via `edge_stats(pattern_id)`.
 
 ### All suspects have source_count=1
 Cause: Sphere has only one pattern (account only). Pair and chain patterns not built.
-Solution: Rebuild sphere with `composite_lines` (pairs) and `chain_lines` (chains). Single-pattern detection has 17.9% recall vs 52.1% with 3 patterns.
+Solution: Rebuild sphere with `composite_lines` (pairs) and `chain_lines` (chains). Single-pattern detection has significantly lower recall than multi-pattern.
 
 ### `find_counterparties` returns too many results
 Cause: Hub account with hundreds of counterparties.

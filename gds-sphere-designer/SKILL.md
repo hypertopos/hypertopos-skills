@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Requires hypertopos CLI (pip install hypertopos). No live MCP session needed for design phases.
 metadata:
   author: Karol Kedzia
-  version: 0.3.0
+  version: 0.3.3
   mcp-server: hypertopos
 ---
 
@@ -274,8 +274,8 @@ pre-built chain lines.
 - Event patterns where relations point to different anchor lines without
   a shared entity type (e.g. order connects customer and product -- no
   entity-to-entity graph)
-- Dense graphs (few unique nodes, many edges per node) -- e.g. NYC Taxi
-  zones with 28K avg degree per zone produce unusable path explosion
+- Dense graphs with very high average degree per node (few unique nodes,
+  many edges each) -- produces unusable path explosion
 - When you only need aggregate features -- use `graph_features` instead,
   which computes in_degree/out_degree/reciprocity without storing edges
 

@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Requires hypertopos MCP server. Designed for Claude Code and compatible agents.
 metadata:
   author: Karol Kędzia
-  version: 0.2.3
+  version: 0.3.3
   mcp-server: hypertopos
 ---
 
@@ -272,7 +272,7 @@ passive_scan(line_id, threshold=1) -> all single+ source
 passive_scan(line_id, threshold=2) -> confirmed multi-source only
 ```
 
-Cross-line bridging: `passive_scan("accounts")` auto-discovers sibling
+Cross-line bridging: `passive_scan("<anchor_line>")` auto-discovers sibling
 lines (same `source_id`). Pre-0.1.x spheres need explicit sources.
 
 ## Exhaustive enumeration

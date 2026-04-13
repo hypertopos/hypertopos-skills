@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Requires hypertopos MCP server. Designed for Claude Code and compatible agents.
 metadata:
   author: Karol Kędzia
-  version: 0.2.3
+  version: 0.3.3
   mcp-server: hypertopos
 ---
 
@@ -52,8 +52,8 @@ edge-dependent tools (`find_counterparties`, `find_geometric_path`,
 
 ## Investigating with ground truth
 
-If the entity line has labeled outcomes (loan_status, is_default, churn_flag,
-fraud_flag, risk_tier), this is the highest priority approach:
+If the entity line has a labeled outcome column (e.g., status, outcome, label),
+this is the highest priority approach:
 
 ```
 get_line_profile(line_id, label_property)  -> distribution of labels
@@ -156,6 +156,8 @@ cross_pattern_profile(key, line_id)     -> multi-source risk overview
 goto(key, line_id) -> get_polygon(pattern_id) -> anomaly dimensions
 dive_solid(key, pattern_id)             -> temporal history
 find_similar_entities(key, pattern_id)  -> geometric neighbors
+  dim_mask=[<dims from anomaly_dimensions>] -> focus on driving dims
+  metric="cosine" -> shape similarity ignoring magnitude
 find_counterparties(key, event_line, from_col, to_col, pattern_id) -> network + amount aggregates
 entity_flow(key, pattern_id)           -> net flow per counterparty (source/sink/mule)
 anomalous_edges(key, counterparty, pattern_id) -> event-level scoring of specific transactions
@@ -203,7 +205,10 @@ For every anomaly finding, consider whether it is a true positive or false posit
 - High `delta_norm` can mean "large legitimate entity" — check business properties
 - `find_similar_entities(key, pattern, filter_expr="is_anomaly = false", top_n=20)`
   — if 10+ normal entities have same shape, it is likely a false positive
-- Dormant/inactive accounts being anomalous is expected, not a finding
+- Use `metric="cosine"` when comparing anomaly profile shape regardless of severity — "same type of anomaly, different scale"
+- Use `dim_mask` to focus similarity on dimensions from `anomaly_dimensions` output — finds entities similar only in the dimensions that drive the anomaly, ignoring irrelevant ones
+- Use `find_anomalies(metric="Linf")` to catch single-dimension spikes that L2 norm dilutes — entities with one extreme dimension but normal on others
+- Dormant/inactive entities being anomalous is expected, not a finding
 
 Classify every finding as:
 - **CONFIRMED** — 3+ tools confirm, multi-source, root cause identified
@@ -219,6 +224,63 @@ Include this in the report summary.
 - Look at the **TOP dimension** by |d|, not the average
 - |d| > 0.8 = large effect, |d| > 1.5 = very large
 - Positive d = group_a higher, negative = group_b higher
+
+---
+
+## Investigation Memory
+
+Maintain three lists throughout the investigation session:
+
+- **`checked[]`** — entities where full investigation is complete (goto + get_polygon + explain_anomaly + counterparties done). Never re-investigate.
+- **`leads[]`** — entities flagged by tools but not yet investigated. Each lead carries a `lead_score` (see Decision Scoring). Sources: `find_anomalies`, `passive_scan`, `find_witness_cohort`, `propagate_influence`, `investigation_coverage.unexplored_anomalous`.
+- **`dead_ends[]`** — entities investigated and found uninteresting (`delta_rank_pct < 70`, no contagion, no temporal signal). Never revisit.
+
+**Protocol:**
+1. Before investigating any entity: check `checked[]` and `dead_ends[]`. Skip if present.
+2. After each entity investigation: move from `leads[]` to `checked[]`.
+3. After each tool call that returns entity lists: score new entities, add to `leads[]` (deduplicating against all three lists).
+4. Call `investigation_coverage(pk, pattern_id, explored_keys=checked)` after every deep-dive. If `coverage_pct < 0.5` and `unexplored_anomalous` is non-empty, add those to `leads[]`.
+5. When delegating to another skill, pass `checked[]` as context.
+
+---
+
+## Failure Guards
+
+Proactive limits to prevent runaway investigations:
+
+| Guard | Threshold | Action |
+|-------|-----------|--------|
+| **Depth limit** | 3 hops from seed entity | Stop expanding, summarize findings |
+| **Strength gate** | `delta_rank_pct < 70` | Skip entity UNLESS `contagion_score > 0.3` or in witness cohort |
+| **Contagion gate** | `contagion_score < 0.2` | Do NOT proceed to network expansion — entity is isolated |
+| **Consecutive call limit** | 3 calls to same tool on same entity | Move to next lead |
+| **Stale lead expiry** | Lead untouched for 10+ tool calls | Demote below fresh leads |
+| **Force-switch** | 5 consecutive calls with no new anomalous entities | STOP current thread, switch to highest-scoring lead |
+
+---
+
+## Decision Scoring
+
+Rank leads by composite score to decide what to investigate next:
+
+```
+lead_score = 0.35 × anomaly_strength
+           + 0.25 × graph_support
+           + 0.25 × temporal_signal
+           + 0.15 × novelty_bonus
+```
+
+| Component | Source | Value |
+|-----------|--------|-------|
+| `anomaly_strength` | `delta_rank_pct / 100` | 0.0–1.0 |
+| `graph_support` | `contagion_score` | 0.0–1.0 (0 if unchecked) |
+| `temporal_signal` | appears in `find_drifting_entities` or `detect_trajectory_anomaly` | 0.0 or 1.0 |
+| `novelty_bonus` | appears in `find_novel_entities` or `find_witness_cohort` | 0.0 or 1.0 |
+
+**Protocol:**
+1. Always investigate the highest-scoring lead next.
+2. After each investigation, update scores of remaining leads (new contagion info may change `graph_support`).
+3. Report queue state: `"Next: <entity> (score X.XX) | Queue: N leads remaining"`
 
 ---
 
