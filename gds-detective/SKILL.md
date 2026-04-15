@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Requires hypertopos MCP server. Designed for Claude Code and compatible agents.
 metadata:
   author: Karol Kędzia
-  version: 0.3.3
+  version: 0.4.0
   mcp-server: hypertopos
 ---
 
@@ -54,7 +54,13 @@ Detection recipes that start with `find_anomalies` benefit from two parameters: 
 ## Event anomaly rate
 
 Catches multi-dimensional joint deviations where each column individually
-looks normal. Run both calls:
+looks normal. When `explain_anomaly` is available on event patterns, use
+`bregman_contribution` + `kind` to identify whether the anomaly is driven
+by count structure (poisson), magnitude (gaussian), or binary flags
+(bernoulli) — this directs which recipe to run next (burst detection for
+poisson, threshold analysis for gaussian, flag analysis for bernoulli).
+
+Run both calls:
 
 ```
 aggregate(event_pattern, group_by_line=anchor_line,
@@ -270,10 +276,22 @@ Use for **confirmation**, not discovery.
 find_anomalies per pattern -> top suspects
 passive_scan(line_id, threshold=1) -> all single+ source
 passive_scan(line_id, threshold=2) -> confirmed multi-source only
+
+Optional: add confidence filter for stable-anomaly confirmation
+  find_anomalies(pattern_id, top_n=50, min_confidence=0.8)
+  -> entities where bootstrap confidence >= 0.8 (populations <= 50K only)
+  -> use as high-priority confirmation list: if an entity appears here
+     AND in passive_scan(threshold=2), it is the strongest confirmation tier
 ```
 
 Cross-line bridging: `passive_scan("<anchor_line>")` auto-discovers sibling
 lines (same `source_id`). Pre-0.1.x spheres need explicit sources.
+
+**Confidence-threshold guidance for confirmation tiers:**
+- `min_confidence >= 0.8` + `threshold=2` → highest-confidence tier, escalate immediately
+- `min_confidence 0.5-0.8` + `threshold=2` → confirmed multi-source but borderline stability
+- `threshold=2` only (no confidence filter) → standard multi-source confirmation
+- `threshold=1` only → broad suspect list, expect higher FP rate
 
 ## Exhaustive enumeration
 

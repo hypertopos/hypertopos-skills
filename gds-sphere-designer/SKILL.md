@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Requires hypertopos CLI (pip install hypertopos). No live MCP session needed for design phases.
 metadata:
   author: Karol Kedzia
-  version: 0.3.3
+  version: 0.4.1
   mcp-server: hypertopos
 ---
 
@@ -216,6 +216,74 @@ will be dominated by that dimension. Check `anomaly_dimensions` on a few
 top anomalies. If one dim contributes >80% of delta_norm across most
 anomalies, remove or isolate it. For temporal, isolate relational dims
 (count_distinct, diversity) into their own pattern.
+
+### Dimension kind tags
+
+The builder auto-assigns a distribution kind to each derived dimension. This
+drives per-dimension Bregman divergence scoring and per-dimension theta
+(hyper-ellipsoid boundary instead of hyper-sphere). In most cases the
+auto-detect is correct; override only when the auto-detect is wrong:
+
+| Auto-detect rule | Assigned kind |
+|-----------------|--------------|
+| Binary FK (`edge_max=1`) | `bernoulli` |
+| `count`, `count_distinct`, window burst | `poisson` |
+| `sum`, `avg`, `std`, `max` | `gaussian` |
+| Entity property (fill indicator) | `bernoulli` |
+
+**When to override:**
+- A `count` dim that is always 0 or 1 (binary presence flag) → force `bernoulli`
+- A `sum` dim that represents event occurrence (never fractional) → consider `poisson`
+- A precomputed dim from an external system whose distribution you know → set explicitly
+
+Override in YAML:
+```yaml
+derived_dimensions:
+  - from_pattern: event_pattern
+    features:
+      - cross_border_flag: count_distinct:country  # auto: poisson
+        kind: bernoulli                             # override: binary presence
+```
+
+**Impact on navigation:**
+- `bernoulli` dims: `metric="Linf"` in `find_anomalies` catches single-flag
+  deviations that L2 norm dilutes. Recommend Linf for patterns with 4+ bernoulli dims.
+- `poisson` dims: anomaly = count structure deviation (structuring, burst). Bregman
+  divergence is more sensitive than Euclidean for count data at low counts.
+- `gaussian` dims: standard behavior. Bregman ≈ squared distance for well-calibrated
+  gaussians — no practical difference from prior behavior for these dims.
+
+For mixed-kind patterns, use `find_anomalies(metric="bregman")` to rank by
+distribution-aware scoring instead of L2. Check `dimension_kinds` in
+`sphere_overview` after build to verify assignments.
+
+### Bootstrap confidence tuning
+
+Each pattern emits `anomaly_confidence` (0–1) per entity for populations <= 50K.
+This reflects bootstrap stability: how consistently the entity is flagged across
+resampled populations. The number of resamples is controlled by `bootstrap_iterations`
+in YAML (default 200):
+
+```yaml
+patterns:
+  entity_pattern:
+    type: anchor
+    entity_line: entities
+    bootstrap_iterations: 200   # default — good balance of stability vs build time
+```
+
+**When to change:**
+- `bootstrap_iterations: 0` — disable bootstrap entirely. Use during development
+  iteration (fast builds) or when the pattern uses `group_by_property` / `use_mahalanobis`
+  (confidence is not emitted for those anyway).
+- `bootstrap_iterations: 50` — faster builds, rougher confidence estimates. Acceptable
+  for exploratory spheres where you only need coarse stable/unstable classification.
+- `bootstrap_iterations: 500` — smoother confidence, recommended for production spheres
+  where `min_confidence` is used as an alert threshold. Build time scales linearly.
+
+**Note:** `anomaly_confidence` is not computed for `group_by_property` patterns (per-cohort
+calibration) or `use_mahalanobis` patterns. It is also skipped when population > 50K — use
+`conformal_p` for large populations instead.
 
 ### Advanced features
 
@@ -543,6 +611,7 @@ triangulation -- confirm via a different pattern where only one source contribut
 | `gmm_n_components` | 3 | Increase if population has distinct sub-groups (e.g. retail vs corporate) |
 | `group_by_property` | null | Set when sub-populations have different normal behavior (e.g. per-country) |
 | `tracked_properties` | null | Set for data quality tracking (which entities have null properties) |
+| `bootstrap_iterations` | 200 | Set to 0 to skip (fast iteration); raise to 500 for production stable-anomaly confidence |
 
 ---
 

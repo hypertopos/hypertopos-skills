@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Requires hypertopos MCP server. Designed for Claude Code and compatible agents.
 metadata:
   author: Karol Kędzia
-  version: 0.2.3
+  version: 0.4.0
   mcp-server: hypertopos
 ---
 
@@ -37,9 +37,30 @@ the most complete picture; skipping one leaves that category unchecked.
 
 ---
 
-## FDR control and diverse selection
+## FDR control, diverse selection, and confidence filtering
 
 Large-population scans should always set `fdr_alpha` (e.g. `fdr_alpha=0.05`) on `find_anomalies`, `attract_boundary`, `find_hubs`, and `find_drifting_entities` because the multiple-testing problem is worse at scale — without FDR control, a 100K-entity scan produces hundreds of false discoveries that contaminate downstream cross-pattern and contamination analysis. Use `select="diverse"` to surface the distinct types of anomaly present in the population rather than ranking purely by severity; this applies submodular facility location to maximize geometric coverage across the result set, which is critical when the scan feeds into segment shift or trajectory shape analysis where variety matters more than extremity.
+
+For populations <= 50K (where bootstrap confidence is computed), add `min_confidence` as a second-pass filter after initial candidate discovery:
+
+```
+find_anomalies(pattern_id, top_n=50, fdr_alpha=0.05, select="diverse")
+-> initial candidate set with FDR control
+
+find_anomalies(pattern_id, top_n=50, fdr_alpha=0.05, min_confidence=0.7)
+-> stable-anomaly subset for downstream cross-pattern and contamination analysis
+```
+
+For mixed-type patterns (check `dimension_kinds` in sphere_overview — look for a mix of poisson/gaussian/bernoulli), try `metric="bregman"` as an alternative ranking:
+
+```
+find_anomalies(pattern_id, top_n=50, metric="bregman")
+-> rank by distribution-aware Bregman divergence instead of L2 delta_norm
+```
+
+Bregman ranking scores each dimension according to its statistical kind (KL for counts, KL for binary, squared z-score for continuous). On patterns with heterogeneous dimension types, Bregman can surface anomalies that L2 misses because L2 treats all dimensions identically.
+
+The two calls serve different purposes: the first gives full coverage, the second prunes borderline detections before expensive multi-pattern verification. Use both when the scan feeds into cross-pattern discrepancy or neighbor contamination — unstable anomalies inflate false discrepancy signals.
 
 ---
 
@@ -103,11 +124,18 @@ Filter results to entities with source_count=1. For each:
 
 ```
 cross_pattern_profile(key, line_id)
+explain_anomaly(key, pattern_id)   -> check bregman_contribution + kind per dimension
 ```
 
 What you're looking for: one pattern says "anomalous", another says "normal".
 Example: supplier anomalous in pricing but normal in activity. This is a DISTINCT
 finding type — do not collapse with multi-source findings.
+
+When `explain_anomaly` returns `bregman_contribution`, use `pct_of_total` to rank
+the driving dimensions rather than `abs_delta`. In cross-pattern discrepancy cases,
+the Bregman breakdown often reveals that a bernoulli or poisson dimension carries
+the anomaly signal in one pattern while gaussian dims dominate the other — this
+dimension-kind mismatch explains WHY the two patterns diverge on the same entity.
 
 **Common mistake:** using threshold=2 (finds agreement). Here you need threshold=1
 (finds discrepancy).

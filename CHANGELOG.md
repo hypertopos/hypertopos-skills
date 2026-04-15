@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-04-15
+
+### Changed
+- 6 skills updated for Bregman divergence, anomaly_confidence, and min_confidence.
+- gds-investigator/fraud-investigator: confidence-integrated triage and Entity 360.
+- gds-sphere-designer: kind tag guidance, bootstrap_iterations tuning, continuous-mode warnings, dirty timestamp troubleshooting.
+
 ## [0.3.3] — 2026-04-13
 
 ### Added

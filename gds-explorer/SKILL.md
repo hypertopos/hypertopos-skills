@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Requires hypertopos MCP server. Designed for Claude Code and compatible agents.
 metadata:
   author: Karol Kędzia
-  version: 0.3.3
+  version: 0.4.0
   mcp-server: hypertopos
 ---
 
@@ -40,6 +40,16 @@ anomaly_summary(top_pattern) -> what drives anomalies
 
 After these 3 calls, check for signals that guide next steps:
 
+- **`dimension_kinds`** in sphere_overview — shows distribution-kind tags per dimension
+  (e.g. "bernoulli x4, poisson x2, gaussian x8"). Use this as a quick orientation to
+  understand which patterns have count-heavy vs magnitude-heavy vs binary geometries.
+  Patterns with many bernoulli dims perform best with `metric="Linf"` in find_anomalies.
+  Patterns with mixed kinds (poisson + gaussian + bernoulli) benefit from `metric="bregman"`.
+- **`confidence_distribution`** in sphere_overview — when present, shows the spread of
+  bootstrap anomaly confidence across the flagged population. A distribution skewed toward
+  low confidence suggests the anomaly rate is inflated by unstable detections. In that case,
+  filter downstream calls: `find_anomalies(pattern_id, min_confidence=0.7)` to focus on
+  high-confidence detections before investing in full investigation.
 - **`profiling_alerts`** — run each alert's suggested call
   (`find_anomalies(rank_by_property=<dim>)`) on every pattern including composites.
 - **`has_temporal: true`** — for each temporal pattern, consider running
@@ -130,6 +140,8 @@ outlier clusters into population mu/sigma — raw profiles reveal them.
 ## Selection modes for anomaly results
 
 `find_anomalies`, `attract_boundary`, `find_hubs`, and `find_drifting_entities` support two selection modes: the default `select="top_norm"` returns the most extreme entities by delta norm, while `select="diverse"` applies submodular facility location to return a geometrically spread set covering different anomaly types. During exploration, `top_norm` answers "show me the most extreme" and `diverse` answers "show me all the kinds of anomaly present." An optional `fdr_alpha` parameter applies Benjamini-Hochberg FDR control to filter statistically insignificant results — useful when handing results to specialist skills, but exploratory orientation can leave it unset to see the full landscape.
+
+`find_anomalies` also accepts `min_confidence` (0–1) to filter by bootstrap anomaly confidence. In exploration, this is useful when the population has many borderline detections: `min_confidence=0.7` returns only entities where the anomaly is stable across bootstrap resamples. Omit for initial orientation to see the full landscape, then narrow when handing suspects to investigation skills. Not applicable for populations > 50K, `group_by_property`, or `use_mahalanobis` patterns (confidence is absent).
 
 ---
 

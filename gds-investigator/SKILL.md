@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Requires hypertopos MCP server. Designed for Claude Code and compatible agents.
 metadata:
   author: Karol Kędzia
-  version: 0.3.3
+  version: 0.4.0
   mcp-server: hypertopos
 ---
 
@@ -97,6 +97,9 @@ Threshold: `combined_p < 0.10` (relaxed vs typical 0.05).
 ```
 anomaly_summary on each pattern -> which has strongest signal?
 find_anomalies(best_pattern, top_n=10) -> top suspects
+  Optional: find_anomalies(best_pattern, top_n=10, min_confidence=0.7)
+    -> filter to entities where bootstrap confidence >= 0.7
+    -> reduces the FP investigation burden when population <= 50K
 Check BOTH ends: if top anomalies all have negative deltas (below mean),
   use attract_boundary(alias, pattern, direction="in") to find entities
   at the positive extreme. Anomaly = extreme in EITHER direction.
@@ -114,7 +117,8 @@ When tracing root causes, use `fdr_alpha=0.05` on `find_anomalies` to ensure the
 
 ## Root cause chain
 
-`explain_anomaly` tells you WHICH dimension is anomalous. That is an
+`explain_anomaly` tells you WHICH dimension is anomalous, with per-dim
+Bregman contributions when dimension kind tags are available. That is an
 observation, not a finding. The root cause chain goes deeper:
 
 ```
@@ -154,6 +158,17 @@ Always report the repair set from `explain_anomaly`. Format:
 ```
 cross_pattern_profile(key, line_id)     -> multi-source risk overview
 goto(key, line_id) -> get_polygon(pattern_id) -> anomaly dimensions
+explain_anomaly(key, pattern_id)        -> per-dim Bregman contributions + kind tags
+  If bregman_contribution present: prefer it over abs_delta for root-cause ranking.
+  Each dim shows kind (gaussian/poisson/bernoulli) and pct_of_total.
+  Focus on dims with highest pct_of_total, not just highest abs_delta.
+  Interpret by kind: poisson dim unusual = count structure anomaly;
+    gaussian dim extreme = magnitude anomaly; bernoulli dim = binary flag fired.
+anomaly_confidence (from get_polygon or find_anomalies result):
+  >= 0.8  -> stable anomaly: high-confidence finding, proceed with full investigation
+  0.3-0.8 -> borderline: investigate but maintain FP possibility in assessment
+  < 0.3   -> likely false positive: verify with additional sources before escalating
+  (confidence is absent for populations > 50K, group_by_property, or use_mahalanobis patterns)
 dive_solid(key, pattern_id)             -> temporal history
 find_similar_entities(key, pattern_id)  -> geometric neighbors
   dim_mask=[<dims from anomaly_dimensions>] -> focus on driving dims
@@ -208,6 +223,7 @@ For every anomaly finding, consider whether it is a true positive or false posit
 - Use `metric="cosine"` when comparing anomaly profile shape regardless of severity — "same type of anomaly, different scale"
 - Use `dim_mask` to focus similarity on dimensions from `anomaly_dimensions` output — finds entities similar only in the dimensions that drive the anomaly, ignoring irrelevant ones
 - Use `find_anomalies(metric="Linf")` to catch single-dimension spikes that L2 norm dilutes — entities with one extreme dimension but normal on others
+- Use `find_anomalies(metric="bregman")` to rank by distribution-aware Bregman divergence — better ranking on mixed-type patterns (counts + amounts + binary flags). Particularly effective when `dimension_kinds` shows a mix of poisson/gaussian/bernoulli
 - Dormant/inactive entities being anomalous is expected, not a finding
 
 Classify every finding as:
@@ -288,7 +304,7 @@ lead_score = 0.35 × anomaly_strength
 
 | Anti-pattern | Fix |
 |---|---|
-| `is_anomaly` tells you THAT, not WHY | Check `anomaly_dimensions` via explain_anomaly |
+| `is_anomaly` tells you THAT, not WHY | Check `anomaly_dimensions` via explain_anomaly; use `bregman_contribution` + `kind` when available |
 | `find_similar_entities` finds shape twins, not transaction partners | Use `find_counterparties` for network relationships |
 | Using `find_chains_for_entity` when chain lines do not exist | Use `discover_chains` — works on edge table directly, no pre-built chains needed |
 | Calling edge-dependent tools without checking edge availability | Run `edge_stats(pattern_id)` first — null means no edges |

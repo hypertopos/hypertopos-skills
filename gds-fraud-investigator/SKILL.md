@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Requires hypertopos MCP server with a financial transaction sphere (account, pair, chain patterns).
 metadata:
   author: Karol Kędzia
-  version: 0.3.3
+  version: 0.4.0
   mcp-server: hypertopos
 ---
 
@@ -152,7 +152,11 @@ Full investigation of a single suspect:
 High contagion (>0.3) + large witness cohort + high novelty = confirmed network pattern. Low contagion (<0.2) + empty cohort = isolated anomaly, deprioritize. Borderline contagion (0.2–0.3) = expand cautiously to one hop only before deciding.
 
 Key signals:
-- `anomaly_dimensions` shows WHICH behavioral features drive the detection
+- `anomaly_dimensions` + `bregman_contribution` shows WHICH behavioral features drive the detection
+  - `kind: poisson` dim anomalous = count/frequency structure deviation (structuring, burst)
+  - `kind: bernoulli` dim anomalous = binary flag triggered (cross-border, FX flag, unusual channel)
+  - `kind: gaussian` dim extreme = magnitude anomaly (large amount, high velocity)
+  - Focus on dims with highest `pct_of_total` in the Bregman breakdown, not just highest abs_delta
 - Counterparties with `is_anomaly=true` = network confirmation
 - Temporal burst → silence pattern = classic placement/layering
 
@@ -201,6 +205,7 @@ Before closing an alert, check for exculpatory evidence:
 - `metric="cosine"` — compare anomaly profile shape ignoring magnitude. Entities with same pattern but different scale will be cosine-close. Use when "same type of activity" matters more than "same scale."
 - `dim_mask=[<dims from anomaly_dimensions>]` — focus similarity on the dimensions that drive the anomaly, ignoring irrelevant ones. Read the target entity's `anomaly_dimensions` first, then pass those labels as the mask.
 - `find_anomalies(metric="Linf")` — rank by max single-dimension spike. Catches entities with one extreme dimension that L2 norm dilutes. Use for single-behavior typologies.
+- `find_anomalies(metric="bregman")` — rank by Bregman divergence. Better than L2 on patterns mixing counts (poisson), amounts (gaussian), and flags (bernoulli). Check `dimension_kinds` in sphere_overview — if mixed kinds, try bregman first.
 
 ## Phase 3 — Typology Detection
 
@@ -395,11 +400,12 @@ lead_score = 0.35 × anomaly_strength
 | `temporal_signal` | appears in `find_drifting_entities` or `detect_trajectory_anomaly` | 0.0 or 1.0 |
 | `novelty_bonus` | appears in `find_novel_entities` or `find_witness_cohort` | 0.0 or 1.0 |
 
-**Triage levels:**
-- `>= 0.7` — CRITICAL: investigate immediately
-- `>= 0.4` — HIGH: investigate in current session
-- `>= 0.2` — MEDIUM: investigate if time permits
-- `< 0.2` — LOW: skip unless explicitly asked
+**Triage levels** (anomaly_confidence available for populations <= 50K):
+- `>= 0.7` AND `anomaly_confidence >= 0.9` — CRITICAL: investigate immediately
+- `>= 0.7` AND `anomaly_confidence >= 0.7` — HIGH: investigate in current session
+- `>= 0.4` AND `anomaly_confidence >= 0.5` — MEDIUM: investigate if time permits
+- `< 0.4` OR `anomaly_confidence < 0.5` — LOW: skip unless explicitly asked
+- (When anomaly_confidence absent, triage by lead_score alone using prior thresholds)
 
 **Protocol:**
 1. Always investigate the highest-scoring lead next.
