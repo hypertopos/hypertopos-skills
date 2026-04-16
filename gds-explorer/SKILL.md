@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Requires hypertopos MCP server. Designed for Claude Code and compatible agents.
 metadata:
   author: Karol Kędzia
-  version: 0.4.0
+  version: 0.4.1
   mcp-server: hypertopos
 ---
 
@@ -120,7 +120,7 @@ outlier clusters into population mu/sigma — raw profiles reveal them.
 | "Which groups have anomalous events?" | `aggregate(event_pattern, group_by_line=X, geometry_filters={"is_anomaly": true})` |
 | "Graph structure for binary FK?" | `find_neighborhood(entity, pattern, max_hops=2)` |
 | "Edge table density / graph stats?" | `edge_stats(pattern_id)` — row_count, unique_from/to, avg_degree |
-| "How are two entities connected?" | `find_geometric_path(from_key, to_key, pattern_id)` — beam search scored by geometric coherence |
+| "How are two entities connected?" | `find_geometric_path(from_key, to_key, pattern_id)` — bidirectional BFS scored by geometric coherence |
 | "Transaction chains from this entity?" | `discover_chains(primary_key, pattern_id)` — temporal BFS on edge table, no pre-built chains needed |
 | "What is this entity's net flow?" | `entity_flow(key, pattern_id)` — outgoing/incoming/net per counterparty |
 | "How contaminated is this neighborhood?" | `contagion_score(key, pattern_id)` — anomalous neighbor ratio (0-1) |
