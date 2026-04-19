@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Requires hypertopos MCP server. Designed for Claude Code and compatible agents.
 metadata:
   author: Karol Kędzia
-  version: 0.4.0
+  version: 0.5.0
   mcp-server: hypertopos
 ---
 
@@ -113,9 +113,178 @@ Form hypotheses about what drives anomalies, test them
 
 When tracing root causes, use `fdr_alpha=0.05` on `find_anomalies` to ensure the initial suspect list has controlled false discovery rate — chasing false positives through the full root-cause chain wastes the entire investigation budget. Use `select="diverse"` when requesting K>10 results to surface anomalies driven by different dimensions rather than clustering on one dominant failure mode; this ensures the investigation covers distinct root-cause categories. Both parameters also apply to `attract_boundary`, `find_hubs`, and `find_drifting_entities`.
 
+**Adaptive FDR (Storey).** When the investigation needs to expand the candidate list without relaxing α, try `fdr_method="storey"` together with `p_value_method="chi2"` — the Storey LSL estimator detects when the population has a real null mass and shrinks q-values accordingly, typically recovering 10–15% more suspects at the same false-discovery guarantee. The two parameters must be set together: Storey with the default rank p-values has no effect (rank p-values are uniform by construction). If the pattern is heavily compressed (every entity looks sub-null) or saturated (every entity already exceeds the null), Storey collapses to BH — keep the default in those regimes.
+
+**Prioritise deteriorating drift.** When `drift_direction` is `"deteriorating"`, the entity is structurally moving away from the null centre — investigation priority is higher than for equally-displaced entities with `"normalizing"` direction, which are already self-correcting. Use this to rank multiple drifting entities by risk rather than raw displacement.
+
 ---
 
 ## Root cause chain
+
+**One-call root-cause tracing.** `trace_root_cause(primary_key, pattern_id)` returns a bounded DAG of evidence in one shot — root witness dimensions from `explain_anomaly`, an edge-counterparty branch (sorted by anomaly, not by transaction volume), a neighbour-contamination branch (with explicit `anomalous_cp_keys` and `revisits_root` clique flag), and a hub branch — replacing the manual `explain_anomaly → find_counterparties → contagion_score → π7 hub` chain below. Use it as the default first step when the user asks "why is this entity anomalous"; fall back to the manual chain only when `truncated=true` signals the bounded tree missed context you actually need.
+
+**Parameter cheatsheet.** Default call `trace_root_cause(pk, pid)` fits 90 % of investigations. Tune when:
+- **`edge_counterparty_top_n=2..5`** — expand multiple anomalous counterparties as separate subtrees. Needed when contagion shows 5+ anomalous cps and you want all of them recursively expanded, not just the single most anomalous.
+- **`max_depth=3..4`** — reach grand-counterparties for deep mule chains; usually depth=2 is enough because contagion branch already summarizes the neighbourhood.
+- **`branches_enabled=["neighbor_contamination"]`** — skip edge_counterparty + hub computation for a fast "is this entity network-contaminated?" query; avoids the full adjacency+π7 scans and is orders of magnitude faster than the default call. Also `["hub"]` for hub-only or `["edge_counterparty"]` for pure chain traversal.
+- **`contagion_min_counterparties=5`** — raise above default 3 on noisy sub-populations where even 3-cp contagion can be statistical noise; small-N contagion=1.0 is a well-known fake alert.
+- **`hub_pop_limit=<larger>`** — raise above the default on medium-sized anchor patterns where hub membership IS informative and the `π7` scan cost is acceptable; the default biases toward skipping hub for large populations.
+
+**Evidence interpretation — the clique signals.**
+- **`revisits_root` on a contagion branch** = the root entity appears in that node's anomalous counterparty list. Confirmed geometric clique — root and this cp are structurally tied and both anomalous. Raise severity one notch beyond raw contagion score.
+- **`previously_seen_as_cp_of: [X, Y]` in evidence** = within the current session, other trace_root_cause calls (on X and Y) reported *this* entity as their anomalous counterparty. Strong network-centre signal even when the current trace looks isolated. Agent workflow: investigate entity, then investigate its cps, then re-check the original entity — inter-call ledger surfaces clique without diffing multiple trees.
+- **`anomalous_cp_keys`** = the up-to-10 anomalous counterparty primary keys of this node. No extra `find_counterparties` call needed to drill down.
+- **`truncated: true`** = more evidence candidates were dropped than fit the `max_branches` / `max_total_nodes` caps. Rerun with higher caps or narrower `branches_enabled` to recover the dropped signal.
+
+**Session cache.** `trace_root_cause` caches `contagion_score` and `find_counterparties` per `(pattern_version, entity_key)` at the navigator instance level. Repeat traces on the same or overlapping entities in one session hit the cache and return near-instantly; the first cold trace on a large anchor pattern is the one that pays the adjacency-scan cost. Capped with LRU eviction to bound memory. Pattern rebuild invalidates automatically via version key.
+
+**Sample tree — structure template + concrete example:**
+
+Template — how the fields nest:
+
+```
+root: <entity_key> (severity=extreme)
+  top_dimensions: [{dim, kind, bregman, pct_of_total}, ...]
+  children:
+    - edge_counterparty: <cp_key_A> (severity=moderate)
+        via_dim: <witness_dim_from_root>
+        witness_counterparty_delta_rank_pct: <rank>
+        children:
+          - neighbor_contamination: <cp_key_A> (severity=high)
+              anomalous_cp_keys: [<root_key>, <peer_1>, ...]   ← root in list
+              revisits_root: [<root_key>]                      ← CLIQUE signal
+    - neighbor_contamination: <entity_key> (severity=low)
+        anomalous_cp_keys: [<cp_key_A>, <cp_key_B>]
+        previously_seen_as_cp_of: [<other_entity>]             ← INTER-CALL signal
+```
+
+Concrete example — what an actual confirmed-clique trace looks like:
+
+```json
+{
+  "root": {
+    "entity_key": "ACC-ROOT",
+    "role": "root",
+    "severity": "extreme",
+    "evidence": {
+      "top_dimensions": [
+        {"dim": "amount_out_std", "kind": "gaussian", "bregman": 67.4, "pct_of_total": 0.28},
+        {"dim": "sum_in", "kind": "gaussian", "bregman": 42.6, "pct_of_total": 0.18}
+      ],
+      "delta_norm": 25.16,
+      "conformal_p": 0.000004
+    },
+    "children": [
+      {
+        "entity_key": "ACC-MULE",
+        "role": "edge_counterparty",
+        "severity": "moderate",
+        "evidence": {
+          "via_dim": "amount_out_std",
+          "witness_counterparty_delta_rank_pct": 98.09
+        },
+        "children": [
+          {
+            "entity_key": "ACC-MULE",
+            "role": "neighbor_contamination",
+            "severity": "high",
+            "evidence": {
+              "contagion_score": 0.625,
+              "total_counterparties": 8,
+              "anomalous_counterparties": 5,
+              "anomalous_cp_keys": ["ACC-ROOT", "ACC-PEER1", "ACC-PEER2", "ACC-PEER3", "ACC-PEER4"],
+              "revisits_root": ["ACC-ROOT"]
+            }
+          }
+        ]
+      },
+      {
+        "entity_key": "ACC-ROOT",
+        "role": "neighbor_contamination",
+        "severity": "low",
+        "evidence": {
+          "contagion_score": 0.2,
+          "total_counterparties": 10,
+          "anomalous_counterparties": 2,
+          "anomalous_cp_keys": ["ACC-MULE", "ACC-OTHER"],
+          "previously_seen_as_cp_of": ["ACC-EARLIER-SUSPECT"]
+        }
+      }
+    ]
+  },
+  "summary": "Entity ACC-ROOT is extreme in account_pattern; primary witness: amount_out_std; branches found: edge_counterparty, neighbor_contamination; 3 nodes.",
+  "hop_count": 2,
+  "branches_explored": 3,
+  "truncated": false
+}
+```
+
+**Read order for pattern-matching:** `root.severity` first → `revisits_root` (direct clique) → `previously_seen_as_cp_of` (inter-call clique) → `anomalous_cp_keys` (queue for deep-dive) → `truncated` (more evidence dropped — rerun with larger caps if needed).
+
+**Triage playbook:**
+- `revisits_root` present on any contagion node → confirmed geometric clique; escalate immediately.
+- `previously_seen_as_cp_of` non-empty → shared-counterparty signal across multiple suspects; high-value graph-centre node.
+- `contagion_score ≥ 0.5` + `revisits_root` empty + root severity extreme → structural anomaly NOT contagion-driven; investigate root's own properties, not network.
+- All child severities `"low"` + root `"extreme"` → isolated primary-source anomaly, not network mule.
+
+### Edge-level anomaly — `edge_potential`
+
+`edge_potential` and `attract_edge_potential` score the relationship itself, not the endpoints. Score formula: distance between endpoint delta vectors × rarity prior (1/pair_tx_count, capped). High score means two geometrically divergent entities are connected by a rare pair — the classic layering signature.
+
+**When to use.**
+- After `trace_root_cause` surfaces an `edge_counterparty` branch — check the `edge_potential` field already attached in evidence. Score above sphere-specific threshold (typically > p95 of population) reinforces the counterparty signal.
+- Standalone ranking: `find_high_potential_edges(pattern_id, top_n=20, min_pair_count=1)` surfaces the most suspicious relationships in the whole pattern without committing to a specific suspect.
+- Entity-scoped: `find_high_potential_edges(pattern_id, top_n=10, from_key=suspect)` ranks the suspect's own edges — useful as a drill-down from `trace_root_cause`.
+
+**Example trace_root_cause `edge_counterparty` evidence with edge_potential:**
+
+```json
+{
+  "role": "edge_counterparty",
+  "entity_key": "ACC-MULE",
+  "severity": "moderate",
+  "evidence": {
+    "via_dim": "amount_out_std",
+    "witness_counterparty_delta_rank_pct": 98.09,
+    "edge_potential": {
+      "score": 12.5,
+      "delta_distance": 5.1,
+      "pair_tx_count": 1,
+      "effective_weight": 1.0
+    }
+  }
+}
+```
+
+Reading order: if both `witness_counterparty_delta_rank_pct` > 95 AND `edge_potential.score` is in the top-percentile of the pattern, you have a confirmed single-tx structurally-anomalous edge — treat as highest priority.
+
+### Structural motifs — `score_motif` and `find_high_potential_motifs`
+
+`score_motif` extends the edge_potential paradigm from one edge to k edges of a named structural pattern. Scoring is product-of-edge_potential across the motif's edges — a motif of rare edges is rare. Three motif types in the closed vocabulary:
+
+- **`cycle_2`** (default window 24h): bidirectional A↔B round-trip. Covers Flash-Burst Round-Trip and Bidirectional Burst typologies.
+- **`cycle_3`** (default window 72h): directed triad A→B→C→A with strict temporal ordering. Covers Round-Tripping 3-Party, Long-Cycle, and Multi-Round-Tripping typologies.
+- **`fan_out`** (default window 168h): hub → k distinct targets (min k=3). Covers Offshore Hub and Concentrator typologies.
+
+**When to use.**
+- After `trace_root_cause` — the `edge_counterparty` branch now carries `motif_potential` automatically when the suspect seeds a motif that passes through the counterparty. Read the block alongside `edge_potential` and `witness_counterparty_delta_rank_pct`; a confirmed signal on all three means structural + per-edge + witness-dimension agreement.
+- Global screening: `find_high_potential_motifs(pattern_id, motif_type="cycle_3", top_n=20)` surfaces the most suspicious triads in the whole pattern. First call per (pattern, motif_type, window) is cold (30–90s on >500k-entity patterns) — subsequent calls hit the LRU cache.
+- Entity drill-down: `score_motif(suspect, motif_type="cycle_2", pattern_id)` checks whether the suspect is the seed of a high-score round-trip without committing to a specific counterparty.
+
+**`motif_potential` block in `trace_root_cause.edge_counterparty.evidence`:**
+
+```json
+{
+  "motif_potential": {
+    "motif_type": "cycle_2",
+    "score": 64.0,
+    "time_window_hours": 24,
+    "counterparty": "ACC-MULE"
+  }
+}
+```
+
+When `motif_type` is `cycle_3`, the block includes `ring: [seed, B, C]`. When `fan_out`, it includes `k` (distinct targets in the window).
 
 `explain_anomaly` tells you WHICH dimension is anomalous, with per-dim
 Bregman contributions when dimension kind tags are available. That is an

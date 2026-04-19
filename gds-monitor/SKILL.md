@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Requires hypertopos MCP server. Designed for Claude Code and compatible agents.
 metadata:
   author: Karol Kędzia
-  version: 0.3.3
+  version: 0.5.0
   mcp-server: hypertopos
 ---
 
@@ -102,6 +102,8 @@ find_drifting_entities(pattern_id, top_n=10, forecast_horizon=3)
 - Single high-displacement drifter = entity-level behavioral change
 - Cluster of drifters in same direction = systemic population shift
 - `forecast_anomaly=true` + `reliability=high` = early warning
+
+**Drift direction triage.** `find_drifting_entities` now returns `drift_direction` per entity. On a monitoring sweep, triage thus: `deteriorating` (highest priority, entities moving away from the population centre — trending toward anomaly), `neutral` (lateral motion, monitor), `normalizing` (lowest priority, already self-correcting). Filter the top-N list by `drift_direction == "deteriorating"` before escalating, otherwise alerts include entities that are actively recovering.
 
 For top drifters, `dive_solid(key, pattern_id)` reveals whether it is
 gradual drift or a sudden jump. If edge table available: `degree_velocity(key, pattern_id)` — accelerating degree alongside geometric displacement = strong behavioral change confirmation.

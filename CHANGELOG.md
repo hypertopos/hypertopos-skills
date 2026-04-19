@@ -4,7 +4,18 @@ All notable changes to `hypertopos-skills` will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [0.5.0] — 2026-04-19
+
+### Changed
+- 4 skills (gds-scanner, gds-investigator, gds-fraud-investigator, gds-detective) gained a guidance paragraph for Storey adaptive FDR — when to pair `fdr_method="storey"` with `p_value_method="chi2"`, why they must be set together, and in which calibration regimes the power recovery actually materialises. Metadata versions bumped to 0.5.0.
+- `gds-fraud-investigator` now documents the adjacency warm-up order for optimal motif cold-call latency and a scale-threshold rule: on spheres where `edge_count > 10M`, skip `find_high_potential_motifs` and drive structural checks through the seed-first `find_anomalies` → per-seed `score_motif` pattern instead. The threshold reflects the underlying in-memory adjacency materialization cost. (metadata stays at 0.5.0 — same release cycle as the Storey-FDR bump.)
+- `gds-fraud-investigator` recipe update for the new `structuring` motif in 0.5.0 find_motif vocabulary — open A→B→C→D amount-gated chain, default 1h window. Phase 2 workflow reordered to try `structuring` first on AML-shaped domains (the closed-triad `cycle_3` atom is effectively inactive on IBM AML labelled fraud; structuring is the dominant find_motif typology there). Adds per-jurisdiction `amt1_min`/`amt2_max` threshold table (US CTR / UK STR / EU CTR / crypto) and a note that thresholds are part of the LRU cache key. Smart-mode triggers extended with `"structuring"`, `"smurfing"`, `"split transfer"`, `"deposit split"`, `"reporting threshold"`.
+- gds-monitor and gds-investigator: new guidance paragraphs on `drift_direction` triage (prioritise `"deteriorating"`, deprioritise `"normalizing"`). gds-monitor metadata version bumped to 0.5.0.
+- gds-investigator and gds-fraud-investigator: new guidance paragraphs on `trace_root_cause` — the one-call DAG replacement for the manual `explain_anomaly → find_counterparties → contagion_score → π7 hub` chain.
+- gds-investigator and gds-fraud-investigator: parameter cheatsheet + clique interpretation guide for `trace_root_cause` after quality pass — documents `edge_counterparty_top_n`, `branches_enabled`, `contagion_min_counterparties`, `hub_pop_limit` tuning; explains `revisits_root` / `previously_seen_as_cp_of` / `anomalous_cp_keys` evidence fields; session cache behaviour on repeat traces.
+- gds-investigator: new section on `edge_potential` + `find_high_potential_edges` — how to read the edge_potential evidence field on `trace_root_cause.edge_counterparty` branches and when to use the ranking primitive.
+- gds-fraud-investigator: AML-specific guidance on rare-pair detection via `find_high_potential_edges` — catches layering signals node-level delta_norm misses.
+- gds-investigator and gds-fraud-investigator: new guidance on `score_motif` + `find_high_potential_motifs` — the structural pattern primitives that compose edge_potential across k edges. Explains the closed vocabulary (`fan_out`, `cycle_2`, `cycle_3`), default time windows per motif_type, how to read the `motif_potential` block now auto-attached to `trace_root_cause.edge_counterparty` evidence, and which AML typologies map to each motif structural atom (T2/T4 → cycle_2, T3/T5/T11 → cycle_3, T6/T13 → fan_out).
 
 ## [0.4.1] — 2026-04-16
 

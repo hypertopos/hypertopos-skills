@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Requires hypertopos MCP server. Designed for Claude Code and compatible agents.
 metadata:
   author: Karol Kędzia
-  version: 0.4.0
+  version: 0.5.0
   mcp-server: hypertopos
 ---
 
@@ -27,6 +27,8 @@ For concrete output examples of each recipe, see [references/examples.md](refere
 ## FDR control and diverse selection
 
 Detection recipes that start with `find_anomalies` benefit from two parameters: `fdr_alpha` applies Benjamini-Hochberg FDR control so that the candidate list has a bounded false discovery rate before expensive downstream recipe steps run, and `select="diverse"` uses submodular facility location to return candidates spanning different anomaly signatures rather than redundant near-duplicates. Set `fdr_alpha=0.05` when the recipe feeds into manual verification or cross-pattern confirmation; use `select="diverse"` when the goal is to discover the range of anomaly types present, not just the most extreme instances. Both parameters also work on `attract_boundary`, `find_hubs`, and `find_drifting_entities`.
+
+**Storey adaptive FDR** — `fdr_method="storey"` with `p_value_method="chi2"` expands the candidate list by 10–15% on patterns whose delta distribution has a real null mass (moderate super-anomaly regime). Both params must be set together; Storey without chi2 p-values is a no-op. On compressed or saturated distributions the effect vanishes — detective recipes should default to `fdr_method="bh"` and only opt into Storey when the pattern's `median(delta_norm) ≈ sqrt(df)` with a clean tail.
 
 ---
 

@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Requires hypertopos MCP server with a financial transaction sphere (account, pair, chain patterns).
 metadata:
   author: Karol Kędzia
-  version: 0.4.0
+  version: 0.5.0
   mcp-server: hypertopos
 ---
 
@@ -103,6 +103,8 @@ If `passive_scan` is not available, manually combine:
 
 When using `find_anomalies` for fraud screening, set `fdr_alpha=0.05` to apply Benjamini-Hochberg FDR control — false positives waste investigator time and erode trust in the alert pipeline, so controlling the false discovery rate is critical. When requesting K>10 results, use `select="diverse"` to surface different fraud typologies (structuring, layering, round-tripping) instead of 50 variants of the same high-volume pattern; this leverages submodular facility location to maximize typological coverage in the result set. Both parameters also apply to `attract_boundary`, `find_hubs`, and `find_drifting_entities`.
 
+**Adaptive Storey FDR.** On transaction event patterns whose delta distribution has a real null mass (normal accounts far below the alert threshold) plus an anomalous tail (genuine high-risk accounts), `fdr_method="storey"` combined with `p_value_method="chi2"` relaxes the BH threshold to recover 10–15% more candidates at the same α. Use this when the default BH top-K is systematically leaving edge cases that investigators later flag as true positives. Both parameters must be set together — Storey with rank p-values is a no-op. Keep the default `fdr_method="bh"` on account_stress-style patterns where every entity carries some stress signal, because there Storey cannot distinguish null mass from tail.
+
 ### Recipe: Risk Triage
 
 For each suspect from Phase 1:
@@ -149,7 +151,100 @@ Full investigation of a single suspect:
 - `witness_cohort_size > 3` → anomaly signature is shared by non-connected peers
 - `find_novel_entities` surfaces entities whose geometry deviates from what their neighbors predict — catches entities that contagion and witness miss
 
+**One-call root-cause tracing.** Instead of running steps 1–8 above manually, `trace_root_cause(suspect_pk, "<anchor_pattern>")` returns a bounded DAG of evidence in one shot — root witness dimensions, edge-counterparty branch (sorted by anomaly, not transaction volume — catches structural cps that high-volume sort would miss), neighbour-contamination branch with `anomalous_cp_keys` + `revisits_root` clique flag, hub branch when population ≤ `hub_pop_limit`. Use it as the default first pass during Phase 2 confirmation; drop into the manual chain only when `truncated=true` signals the tree missed context you need or when you explicitly want per-step control.
+
+**Fraud-specific tuning.**
+- **`edge_counterparty_top_n=3..5`** — mule networks typically involve multiple anomalous counterparties; default 1 shows only the single most anomalous cp. For Phase 3 escalation on high-risk suspects, raise to expand each anomalous cp as a separate subtree.
+- **`branches_enabled=["neighbor_contamination"]`** — fast targeted scan: for a batch of candidate suspects, contagion-only trace avoids the edge_counterparty recursion and π7 scan; orders of magnitude cheaper than default once cache is warm. Use to rank-by-contagion before committing to full traces on the top-N.
+- **`contagion_min_counterparties=5`** — raise default 3 for high-confidence fraud networks; filters out statistical noise from small-counterparty suspects.
+
+**Clique detection signals (read these on every trace).**
+- **`revisits_root: [keys]`** on a contagion branch = confirmed 2+ node clique with the root. Every name in this list transacted with the root AND is itself anomalous. Immediate Phase 3 escalation criterion.
+- **`previously_seen_as_cp_of: [X, Y]`** = session ledger signal: other suspects you already traced (X, Y) listed THIS entity as their anomalous cp. The entity is a shared counterparty across multiple confirmed suspects — high-value graph-centre node worth prioritising.
+- **`anomalous_cp_keys`** list → all 10+ anomalous neighbours available without a second `find_counterparties` call. Use directly as Phase 3 investigation queue.
+
 High contagion (>0.3) + large witness cohort + high novelty = confirmed network pattern. Low contagion (<0.2) + empty cohort = isolated anomaly, deprioritize. Borderline contagion (0.2–0.3) = expand cautiously to one hop only before deciding.
+
+**Edge-level rare-pair detection — `find_high_potential_edges`.** AML layering often shows as a one-off transaction between two geometrically divergent accounts (high-income sender, dormant/low-history receiver). Node-level delta_norm misses it because each endpoint alone looks only borderline. `find_high_potential_edges(pattern_id, top_n=20, min_pair_count=1)` catches these by scoring the edge itself.
+
+- Use early in Phase 2 — run AFTER `find_anomalies` on the anchor pattern but BEFORE committing a full `trace_root_cause` on each candidate. High-edge-potential edges point directly at suspect pairs without requiring a candidate selection.
+- Cross-reference with `trace_root_cause.edge_counterparty.edge_potential` — if the same edge appears in both (top of find_high_potential AND enriched evidence on trace), that's a confirmed rare-pair layering signal worth immediate Phase 3 escalation.
+- Raise `min_pair_count=3` on spheres where legitimate frequent-but-large pairs (corporate payroll) dominate the top — shifts focus to truly one-off suspicious edges.
+
+**Dual-query playbook — singletons AND recurring suspects.** The default ranking with `min_pair_count=1` is dominated by one-off singleton pairs (classic placement/layering signature — AUROC 0.92 on AML HI-small). But recurring suspect pairs (a handful of transactions between two anomalous accounts) are a DIFFERENT fraud shape — e.g. structuring below reporting thresholds over several days. A single ranking call catches one shape; run BOTH:
+
+```
+# Pass 1: singletons (placement / one-off layering)
+find_high_potential_edges(pattern_id, top_n=20, min_pair_count=1)
+
+# Pass 2: recurring suspects (structuring / smurfing)
+find_high_potential_edges(pattern_id, top_n=10, min_pair_count=5)
+```
+
+The second pass returns pairs with 5+ transactions between the same two anomalous accounts — that pattern rarely appears in legitimate business and is a strong smurfing signal. Use both outputs as two parallel Phase 3 queues. Each `is_high_potential=true` entry is above the pattern's p95 of scores and warrants immediate review.
+
+**Reading the `is_high_potential` flag + `score_rank_pct`.** The scalar `score` is not cross-sphere-comparable (it scales with delta dimensionality), but every result carries `score_rank_pct` (percentile within the pattern) and `is_high_potential` (boolean, true when score ≥ p95). Use these for triage: `is_high_potential=true` is the actionable flag; `score_rank_pct >= 99` marks the extreme tail for immediate escalation.
+
+**Structural motif detection — `score_motif` and `find_high_potential_motifs`.** Where `edge_potential` scores one anomalous edge, `score_motif` scores the whole structural shape of a suspicious k-edge motif. The scoring rule is product-of-edge_potential across motif edges — a motif survives the score only if ALL its edges are rare and its endpoints are geometrically distant. One regular high-volume edge in a triad collapses the score to near-zero (correct: a triad with a payroll edge is not laundering).
+
+Closed vocabulary mapped to the 25 documented typologies in `references/typologies.md`:
+
+- **`cycle_2`** (default 24h window) — A↔B bidirectional round-trip. Structural atom of T2 Flash-Burst Round-Trip and T4 Bidirectional Burst.
+- **`cycle_3`** (default 72h window, strict temporal ordering `ts_ab < ts_bc < ts_ca`) — directed triad A→B→C→A. Structural atom of T3 Round-Tripping 3-Party, T5 Long-Cycle, T11 Multi-Round-Tripping, T19 Multi-Direction Feedback Loop. **Note:** closed-triad fraud cycles in IBM AML are effectively absent (autoresearch caught 0/0 TPs on HI+LI-small). Real AML cycles are 4+ hops or open chains — use `structuring` below for the canonical AML atom.
+- **`fan_out`** (default 168h window, min k=3 targets) — hub → k distinct targets in the window. Structural atom of T6 Offshore Hub, T13 Concentrator / Sink.
+- **`structuring`** (default 1h window, amount-gated) — open linear chain A→B→C→D with hop1 amount ≥ `amt1_min` and hops 2 and 3 amount ≤ `amt2_max`, strict temporal ordering. Classic cash-deposit-split-and-wire pattern for evading reporting thresholds. Defaults `amt1_min=10000, amt2_max=10000` match the USD CTR threshold; override per jurisdiction — GBP CTR is 10000 GBP, EU CTR is 10000 EUR, crypto exchange thresholds vary. Empirically this is the dominant find_motif typology on IBM AML labelled fraud (closed-triad `cycle_3` is effectively absent there — AML fraud cycles are 4+ hops or open chains). Structural atom of structuring / smurfing typology.
+
+**AML workflow (Phase 2 confirmation):**
+
+```
+1. find_high_potential_edges(pattern_id, min_pair_count=1)       → single-edge rare-pair candidates
+2. For top-K candidates → score_motif(suspect, motif_type="structuring", pattern_id)
+3. If structuring is_high_potential → escalate as deposit-split-and-wire (highest-recall AML atom)
+4. Otherwise score_motif(suspect, motif_type="cycle_2", pattern_id)
+5. If cycle_2 is_high_potential → flash-burst round-trip
+6. Otherwise score_motif(suspect, motif_type="cycle_3", pattern_id)   # only if non-IBM-AML domain
+7. For hub-candidates (high out_degree) → score_motif(suspect, motif_type="fan_out", pattern_id)
+```
+
+**Global motif screening:**
+
+```
+find_high_potential_motifs(pattern_id, motif_type="structuring", top_n=20)   # top deposit-split-and-wire (AML default)
+find_high_potential_motifs(pattern_id, motif_type="cycle_3", top_n=20)       # top round-tripping 3-party rings
+find_high_potential_motifs(pattern_id, motif_type="fan_out", top_n=20)       # top concentrator hubs
+find_high_potential_motifs(pattern_id, motif_type="cycle_2", top_n=20)       # top flash-burst round-trips
+```
+
+On AML-shaped spheres start with `structuring` — it is the only find_motif branch with material recall lift on IBM AML benchmarks (`cycle_3`, `round_trip`, `pass_through` branches are effectively inactive there because AML fraud cycles are 4+ hops or open chains, not 3-node closed triads). `cycle_2` remains useful as the fast flash-burst prior. `fan_out` captures concentrator hubs. `cycle_3` is retained as a non-AML-default typology match for domains where closed triads appear (crypto wash-trade rings, some fraud typologies outside the IBM AML label universe).
+
+**Structuring thresholds per jurisdiction.** Default `amt1_min=10000, amt2_max=10000` match the US Currency Transaction Report (CTR) threshold. Adjust per sphere:
+
+| Jurisdiction | `amt1_min` | `amt2_max` | Rationale |
+|---|---|---|---|
+| US CTR | 10000 | 10000 | FinCEN 31 CFR 1010.311 |
+| UK STR (cash) | 10000 | 10000 | MLR 2017, threshold in GBP |
+| EU CTR | 10000 | 10000 | AMLD5 Article 11, threshold in EUR |
+| Crypto exchange (typical) | 3000 | 3000 | Varies by exchange — consult risk policy |
+| Custom / investigative | user-specified | user-specified | For suspected-pattern hunts with known amount signature |
+
+`amt1_min` and `amt2_max` are part of the ranking LRU cache key, so changing thresholds on the same pattern triggers recompute. Budget one cold call per unique (pattern, threshold pair) in a session.
+
+First call per (pattern, motif_type, window) is cold — 30–90s on >500k-entity patterns. Subsequent calls hit an LRU cache (cap 8). Plan exploration with this in mind: pick one motif_type, spend the cold cost, drill down on the top results before switching to a different motif_type.
+
+**Warm-up order for cold-session cost.** The per-pattern adjacency index is shared across eight graph primitives (`find_counterparties`, `entity_flow`, `contagion_score`, `discover_chains`, `anomalous_edges`, `find_geometric_path`, `detect_network_novelty`, and motif ranking). The first of these primitives called on a given pattern pays the full edge-table materialization; every subsequent call that touches the same pattern reuses it. If the investigation starts with `find_anomalies` → `find_counterparties(suspect, pattern_id)` on the top candidates, the adjacency is already warm by the time `find_high_potential_motifs` is called — the motif cold cost drops by roughly half. Conversely, starting with a cold `find_high_potential_motifs` and only later calling `find_counterparties` pays the cold cost on motif ranking first. Either way works; the order only affects which call wears the one-time materialization.
+
+**Scale threshold — when NOT to use `find_high_potential_motifs`.** Global motif ranking materializes the full pattern adjacency in memory (roughly 200 bytes / edge in Python tuple overhead). Up to ~10M edges (covers Berka, NYC Taxi, IBM AML HI-small / LI-small) the default path is fine. Above that, memory and cold build time become prohibitive. On spheres where `edge_count > 10M` switch to the seed-first pattern:
+
+```
+find_anomalies(pattern_id, top_n=1000)              # cheap, pre-computed delta_norm
+for seed in top_anomalous_seeds:
+    score_motif(seed, motif_type="cycle_2", pattern_id)
+    score_motif(seed, motif_type="cycle_3", pattern_id)
+```
+
+`score_motif` uses a Lance BTREE point query (`read_edges(from_keys=[seed])`) per call — ~10ms per seed regardless of sphere size, zero full-adjacency materialization. The trade-off: this only finds motifs seeded at already-anomalous entities. For detecting novel motifs whose endpoints are not yet individually anomalous, the global ranking path is required — budget accordingly.
+
+**`motif_potential` enrichment on trace_root_cause.** `trace_root_cause.edge_counterparty.evidence` now automatically includes a `motif_potential` block when the suspect is the seed of a high-scoring motif that passes through the counterparty. This closes a gap — an analyst doesn't need a separate call to find out "is there a triad around this pair". When you see `edge_potential.score` AND `motif_potential.score` both above p95, the suspect-counterparty relationship is both edge-rare (single tx, distant deltas) and structurally-rare (part of a named AML motif). Treat as top priority for Phase 3 escalation.
 
 Key signals:
 - `anomaly_dimensions` + `bregman_contribution` shows WHICH behavioral features drive the detection

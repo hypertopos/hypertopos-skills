@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Requires hypertopos MCP server. Designed for Claude Code and compatible agents.
 metadata:
   author: Karol Kędzia
-  version: 0.4.0
+  version: 0.5.0
   mcp-server: hypertopos
 ---
 
@@ -49,6 +49,14 @@ find_anomalies(pattern_id, top_n=50, fdr_alpha=0.05, select="diverse")
 
 find_anomalies(pattern_id, top_n=50, fdr_alpha=0.05, min_confidence=0.7)
 -> stable-anomaly subset for downstream cross-pattern and contamination analysis
+```
+
+**Storey adaptive FDR (optional, regime-dependent).** On patterns where the population carries a real null mass alongside the anomalous tail, `fdr_method="storey"` paired with `p_value_method="chi2"` recovers 10–15% additional discoveries at the same alpha. This requires both parameters together — Storey with default rank p-values collapses to plain BH because rank p-values are uniform by construction. Before using Storey, check `sphere_overview` for the pattern's anomaly_rate and look at `delta_norm` distribution: if the median delta is close to sqrt(df) (with a meaningful tail), Storey helps; if the median is much smaller than sqrt(df) (compressed) or much larger (every entity already looks anomalous), keep the default `fdr_method="bh"` — Storey will not change the result.
+
+```
+find_anomalies(pattern_id, top_n=100, fdr_alpha=0.05,
+               fdr_method="storey", p_value_method="chi2")
+-> adaptive FDR, more discoveries when the pattern has a real null tail
 ```
 
 For mixed-type patterns (check `dimension_kinds` in sphere_overview — look for a mix of poisson/gaussian/bernoulli), try `metric="bregman"` as an alternative ranking:
