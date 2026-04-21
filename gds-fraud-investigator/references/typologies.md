@@ -72,6 +72,8 @@ Intense ping-pong between two accounts (A<->B).
 4. Flag if any member source_count >= 2: MULTI_STAGE_LAYERING
 ```
 
+> **Fast-path:** `find_high_potential_motifs(pattern_id, motif_type="chain_k", k=4, time_window_hours=168)` ranks the top layering chains atomically; filter the returned list on `n_distinct_categories` via `get_polygon` per seed.
+
 ### Typology 6: Offshore Hub
 
 Shell-company hub connecting jurisdictions. Requires jurisdiction risk data.
@@ -189,6 +191,8 @@ Account receives many small payments, then sends few large ones.
 6. Flag: CONCENTRATOR_SINK
 ```
 
+> **Fast-path:** `find_high_potential_motifs(pattern_id, motif_type="fan_in", min_k=10, time_window_hours=168)` surfaces concentrator/sink candidates by distinct-source count in one call; the `get_polygon` fan_asymmetry filter then narrows to the "mostly receiving" shape.
+
 ### Typology 14: Geographic Spread
 
 Flow spread across many jurisdictions with no single country dominating.
@@ -265,6 +269,8 @@ Long chains with deliberate time gaps between hops (slow-motion layering).
 4. cross_pattern_profile(first_key) → multi-source confirmation
 5. Flag: MULTI_JURISDICTION_LATENCY
 ```
+
+> **Fast-path:** `find_high_potential_motifs(pattern_id, motif_type="chain_k", k=5, time_window_hours=168)` surfaces deliberate-pacing deep chains in one call; `get_polygon(first_key)` then verifies `avg_time_between_hops > 12h`.
 
 ### Typology 19: Multi-Direction Feedback Loop
 

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "hypertopos-skills"
-version = "0.5.0"
+version = "0.5.1"
 description = "Investigation workflows for AI agents exploring geometric data spaces"
 requires-python = ">=3.12"
 license = "Apache-2.0"

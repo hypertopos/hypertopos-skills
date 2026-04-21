@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Requires hypertopos MCP server. Designed for Claude Code and compatible agents.
 metadata:
   author: Karol Kędzia
-  version: 0.5.0
+  version: 0.5.1
   mcp-server: hypertopos
 ---
 
@@ -260,15 +260,18 @@ Reading order: if both `witness_counterparty_delta_rank_pct` > 95 AND `edge_pote
 
 ### Structural motifs — `score_motif` and `find_high_potential_motifs`
 
-`score_motif` extends the edge_potential paradigm from one edge to k edges of a named structural pattern. Scoring is product-of-edge_potential across the motif's edges — a motif of rare edges is rare. Three motif types in the closed vocabulary:
+`score_motif` extends the edge_potential paradigm from one edge to k edges of a named structural pattern. Scoring is product-of-edge_potential across the motif's edges — a motif of rare edges is rare. Six motif types in the closed vocabulary:
 
 - **`cycle_2`** (default window 24h): bidirectional A↔B round-trip. Covers Flash-Burst Round-Trip and Bidirectional Burst typologies.
 - **`cycle_3`** (default window 72h): directed triad A→B→C→A with strict temporal ordering. Covers Round-Tripping 3-Party, Long-Cycle, and Multi-Round-Tripping typologies.
-- **`fan_out`** (default window 168h): hub → k distinct targets (min k=3). Covers Offshore Hub and Concentrator typologies.
+- **`fan_out`** (default window 168h): hub → k distinct targets (min k=3). Covers Offshore Hub and Concentrator (source side) typologies.
+- **`fan_in`** (default window 168h): k distinct sources → sink (min k=3). Mirror of `fan_out`. Covers Parallel Layering (destination side) and Concentrator / Sink typologies.
+- **`chain_k`** (default window 168h, open directed chain of parametric length 3 ≤ k ≤ 8): A→B→…→Z with no cycle closure, no node revisit, strict monotone timestamps, total span ≤ window. Covers Multi-Stage Layering and Multi-Jurisdiction Latency Chain typologies. Tune `k` to the layering depth under investigation.
+- **`structuring`** (default window 1h, amount-gated): open A→B→C→D with hop1 amount ≥ `amt1_min`, hops 2 and 3 ≤ `amt2_max`. Classic deposit-split-and-wire pattern for reporting-threshold evasion.
 
 **When to use.**
 - After `trace_root_cause` — the `edge_counterparty` branch now carries `motif_potential` automatically when the suspect seeds a motif that passes through the counterparty. Read the block alongside `edge_potential` and `witness_counterparty_delta_rank_pct`; a confirmed signal on all three means structural + per-edge + witness-dimension agreement.
-- Global screening: `find_high_potential_motifs(pattern_id, motif_type="cycle_3", top_n=20)` surfaces the most suspicious triads in the whole pattern. First call per (pattern, motif_type, window) is cold (30–90s on >500k-entity patterns) — subsequent calls hit the LRU cache.
+- Global screening: `find_high_potential_motifs(pattern_id, motif_type="cycle_3", top_n=20)` surfaces the most suspicious triads in the whole pattern. First call per (pattern, motif_type, window, …, k) is cold (30–90s on >500k-entity patterns) — subsequent calls hit the LRU cache.
 - Entity drill-down: `score_motif(suspect, motif_type="cycle_2", pattern_id)` checks whether the suspect is the seed of a high-score round-trip without committing to a specific counterparty.
 
 **`motif_potential` block in `trace_root_cause.edge_counterparty.evidence`:**
@@ -284,7 +287,7 @@ Reading order: if both `witness_counterparty_delta_rank_pct` > 95 AND `edge_pote
 }
 ```
 
-When `motif_type` is `cycle_3`, the block includes `ring: [seed, B, C]`. When `fan_out`, it includes `k` (distinct targets in the window).
+When `motif_type` is `cycle_3`, the block includes `ring: [seed, B, C]`. When `fan_out` or `fan_in`, it includes `k` (distinct neighbours in the window). When `chain_k`, it includes `path` (list of k keys) and `k`.
 
 `explain_anomaly` tells you WHICH dimension is anomalous, with per-dim
 Bregman contributions when dimension kind tags are available. That is an

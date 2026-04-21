@@ -4,6 +4,15 @@ All notable changes to `hypertopos-skills` will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+## [0.5.1] — 2026-04-21
+
+### Changed
+- `gds-fraud-investigator` SKILL.md: closed-vocabulary motif list gains `fan_in` (mirror of `fan_out`, sink-centric) and `chain_k` (open directed chain of parametric length 3 ≤ k ≤ 8). Metadata version bumped.
+- `gds-fraud-investigator/references/typologies.md`: T5 (Long-Cycle Multi-Stage Layering), T13 (Concentrator/Sink), and T18 (Multi-Jurisdiction Latency Chain) recipes gain an atomic fast-path note pointing to the new `chain_k` and `fan_in` motif types. The existing multi-step `extract_chains` / `passive_scan` paths remain authoritative; the motif types add a single-call alternative for agents doing targeted detection.
+- `gds-investigator` SKILL.md: structural motif section expanded from three types (`cycle_2` / `cycle_3` / `fan_out`) to six with `fan_in`, `chain_k`, and `structuring` rows. Cache-key note extended to mention the new `k` parameter. Metadata version bumped.
+
 ## [0.5.0] — 2026-04-19
 
 ### Changed
