@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Requires hypertopos MCP server. Designed for Claude Code and compatible agents.
 metadata:
   author: Karol Kędzia
-  version: 0.5.1
+  version: 0.5.2
   mcp-server: hypertopos
 ---
 
@@ -260,7 +260,7 @@ Reading order: if both `witness_counterparty_delta_rank_pct` > 95 AND `edge_pote
 
 ### Structural motifs — `score_motif` and `find_high_potential_motifs`
 
-`score_motif` extends the edge_potential paradigm from one edge to k edges of a named structural pattern. Scoring is product-of-edge_potential across the motif's edges — a motif of rare edges is rare. Six motif types in the closed vocabulary:
+`score_motif` extends the edge_potential paradigm from one edge to k edges of a named structural pattern. Scoring is product-of-edge_potential across the motif's edges — a motif of rare edges is rare. Eight motif types in the closed vocabulary:
 
 - **`cycle_2`** (default window 24h): bidirectional A↔B round-trip. Covers Flash-Burst Round-Trip and Bidirectional Burst typologies.
 - **`cycle_3`** (default window 72h): directed triad A→B→C→A with strict temporal ordering. Covers Round-Tripping 3-Party, Long-Cycle, and Multi-Round-Tripping typologies.
@@ -268,6 +268,8 @@ Reading order: if both `witness_counterparty_delta_rank_pct` > 95 AND `edge_pote
 - **`fan_in`** (default window 168h): k distinct sources → sink (min k=3). Mirror of `fan_out`. Covers Parallel Layering (destination side) and Concentrator / Sink typologies.
 - **`chain_k`** (default window 168h, open directed chain of parametric length 3 ≤ k ≤ 8): A→B→…→Z with no cycle closure, no node revisit, strict monotone timestamps, total span ≤ window. Covers Multi-Stage Layering and Multi-Jurisdiction Latency Chain typologies. Tune `k` to the layering depth under investigation.
 - **`structuring`** (default window 1h, amount-gated): open A→B→C→D with hop1 amount ≥ `amt1_min`, hops 2 and 3 ≤ `amt2_max`. Classic deposit-split-and-wire pattern for reporting-threshold evasion.
+- **`split_recombine`** (default window 24h, `min_k` default 3, `direction="forward"|"backward"`): diamond scatter-gather S → {M₁,…,Mₖ} → D with stacked-bipartite temporal order (all split-hops precede all recombine-hops within the window). Forward mode anchors the seed as the source; backward mode anchors the seed as the sink. Covers scatter-gather smurfing, parallel layering, and concentrator/sink (backward mode) typologies — amount-free counterpart to `structuring`.
+- **`bipartite_burst`** (default window 24h, `min_k` default 3, `min_m` default 3): complete K_{k,m} bipartite subgraph in a tight time window — k distinct sources each transact with every one of m distinct sinks. Greedy single-core enumeration: tries seed-as-source first, falls back to seed-as-sink. Covers coordinated mule-ring and parallel-collusion typologies; complements `fan_out` + `fan_in` by requiring completeness on both sides rather than density at a single anchor.
 
 **When to use.**
 - After `trace_root_cause` — the `edge_counterparty` branch now carries `motif_potential` automatically when the suspect seeds a motif that passes through the counterparty. Read the block alongside `edge_potential` and `witness_counterparty_delta_rank_pct`; a confirmed signal on all three means structural + per-edge + witness-dimension agreement.
@@ -287,7 +289,7 @@ Reading order: if both `witness_counterparty_delta_rank_pct` > 95 AND `edge_pote
 }
 ```
 
-When `motif_type` is `cycle_3`, the block includes `ring: [seed, B, C]`. When `fan_out` or `fan_in`, it includes `k` (distinct neighbours in the window). When `chain_k`, it includes `path` (list of k keys) and `k`.
+When `motif_type` is `cycle_3`, the block includes `ring: [seed, B, C]`. When `fan_out` or `fan_in`, it includes `k` (distinct neighbours in the window). When `chain_k`, it includes `path` (list of k keys) and `k`. When `split_recombine`, it includes `source`, `sink`, `intermediaries` (the M nodes), `k`, and `direction`. When `bipartite_burst`, it includes `sources`, `sinks`, `k`, `m`, and `seed_role` (`"source"` or `"sink"`).
 
 `explain_anomaly` tells you WHICH dimension is anomalous, with per-dim
 Bregman contributions when dimension kind tags are available. That is an

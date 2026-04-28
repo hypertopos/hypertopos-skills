@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Requires hypertopos MCP server with a financial transaction sphere (account, pair, chain patterns).
 metadata:
   author: Karol Kędzia
-  version: 0.5.1
+  version: 0.5.2
   mcp-server: hypertopos
 ---
 
@@ -195,6 +195,8 @@ Closed vocabulary mapped to the 25 documented typologies in `references/typologi
 - **`fan_in`** (default 168h window, min k=3 sources) — k distinct sources → sink, mirror of `fan_out`. Structural atom of T12 Parallel Layering (destination side) and T13 Concentrator / Sink.
 - **`chain_k`** (default 168h window, open directed chain of length k, 3 ≤ k ≤ 8) — A→B→…→Z with no cycle closure, no node revisit, strict monotone timestamps, total span ≤ window. Amount-free open-chain counterpart to `structuring`. Structural atom of T5 Long-Cycle Multi-Stage Layering and T18 Multi-Jurisdiction Latency Chain; tune `k` to the layering depth under investigation (default 4; `k=3` for fast shallow scans, `k≥6` for targeted deep investigations).
 - **`structuring`** (default 1h window, amount-gated) — open linear chain A→B→C→D with hop1 amount ≥ `amt1_min` and hops 2 and 3 amount ≤ `amt2_max`, strict temporal ordering. Classic cash-deposit-split-and-wire pattern for evading reporting thresholds. Defaults `amt1_min=10000, amt2_max=10000` match the USD CTR threshold; override per jurisdiction — GBP CTR is 10000 GBP, EU CTR is 10000 EUR, crypto exchange thresholds vary. Empirically this is the dominant find_motif typology on IBM AML labelled fraud (closed-triad `cycle_3` is effectively absent there — AML fraud cycles are 4+ hops or open chains). Structural atom of structuring / smurfing typology.
+- **`split_recombine`** (default 24h window, `min_k` default 3, `direction` parameter `"forward"|"backward"`) — diamond scatter-gather smurfing: source S → k distinct intermediaries {M₁,…,Mₖ} → single sink D, with stacked-bipartite temporal order (all split-hops precede all recombine-hops within the window). Forward mode anchors the seed as the source S; backward mode anchors the seed as the sink D. Amount-free counterpart to `structuring` for the diamond shape. Structural atom of T1 Structured Layering (when split goes through multiple categories), T12 Parallel Layering (forward — multiple chains converge on the sink), and T13 Concentrator / Sink (backward — sink receives from many independent intermediaries).
+- **`bipartite_burst`** (default 24h window, `min_k` default 3 sources, `min_m` default 3 sinks) — complete K_{k,m} bipartite subgraph in a tight time window: k distinct sources each transact with every one of m distinct sinks. Greedy single-core enumeration (not maximal): tries seed-as-source first, falls back to seed-as-sink. Complements `fan_out` + `fan_in` by requiring completeness on both sides rather than just density at a single anchor — flags coordinated mule-ring and parallel-collusion shapes that single-anchor fans miss. The K_{k,m} completeness constraint is why this catches collusion: random anomalous traffic rarely produces a fully-saturated bipartite subgraph in a tight window.
 
 **AML workflow (Phase 2 confirmation):**
 
@@ -211,10 +213,12 @@ Closed vocabulary mapped to the 25 documented typologies in `references/typologi
 **Global motif screening:**
 
 ```
-find_high_potential_motifs(pattern_id, motif_type="structuring", top_n=20)   # top deposit-split-and-wire (AML default)
-find_high_potential_motifs(pattern_id, motif_type="cycle_3", top_n=20)       # top round-tripping 3-party rings
-find_high_potential_motifs(pattern_id, motif_type="fan_out", top_n=20)       # top concentrator hubs
-find_high_potential_motifs(pattern_id, motif_type="cycle_2", top_n=20)       # top flash-burst round-trips
+find_high_potential_motifs(pattern_id, motif_type="structuring", top_n=20)        # top deposit-split-and-wire (AML default)
+find_high_potential_motifs(pattern_id, motif_type="cycle_3", top_n=20)            # top round-tripping 3-party rings
+find_high_potential_motifs(pattern_id, motif_type="fan_out", top_n=20)            # top concentrator hubs
+find_high_potential_motifs(pattern_id, motif_type="cycle_2", top_n=20)            # top flash-burst round-trips
+find_high_potential_motifs(pattern_id, motif_type="split_recombine", top_n=20)    # top scatter-gather diamonds (forward by default)
+find_high_potential_motifs(pattern_id, motif_type="bipartite_burst", top_n=20)    # top K_{k,m} coordinated bursts
 ```
 
 On AML-shaped spheres start with `structuring` — it is the only find_motif branch with material recall lift on IBM AML benchmarks (`cycle_3`, `round_trip`, `pass_through` branches are effectively inactive there because AML fraud cycles are 4+ hops or open chains, not 3-node closed triads). `cycle_2` remains useful as the fast flash-burst prior. `fan_out` captures concentrator hubs. `cycle_3` is retained as a non-AML-default typology match for domains where closed triads appear (crypto wash-trade rings, some fraud typologies outside the IBM AML label universe).

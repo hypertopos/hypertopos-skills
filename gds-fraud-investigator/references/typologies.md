@@ -17,6 +17,8 @@ Multi-hop structuring with rounded amounts across jurisdictions.
 6. Flag: STRUCTURED_LAYERING
 ```
 
+> **Fast-path:** `find_high_potential_motifs(pattern_id, motif_type="split_recombine", direction="forward", min_k=3, time_window_hours=24)` ranks the top scatter-gather diamonds atomically; `get_polygon` per seed then verifies `amount_uniformity > 0.7` and `n_distinct_categories >= 2` on the structured-layering shape.
+
 ### Typology 2: Flash-Burst Round-Trip
 
 Short intense burst with return flow (A->X->A in <24h).
@@ -176,6 +178,8 @@ Multiple independent chains converge on the same destination account.
 5. Flag: PARALLEL_LAYERING
 ```
 
+> **Fast-path:** `find_high_potential_motifs(pattern_id, motif_type="split_recombine", direction="backward", min_k=3, time_window_hours=24)` surfaces destinations that aggregate multiple parallel chains in one call by anchoring on the sink and enumerating distinct intermediaries; `cross_pattern_profile(dest_key)` then confirms multi-source convergence.
+
 ### Typology 13: Concentrator / Sink Account
 
 Account receives many small payments, then sends few large ones.
@@ -192,6 +196,8 @@ Account receives many small payments, then sends few large ones.
 ```
 
 > **Fast-path:** `find_high_potential_motifs(pattern_id, motif_type="fan_in", min_k=10, time_window_hours=168)` surfaces concentrator/sink candidates by distinct-source count in one call; the `get_polygon` fan_asymmetry filter then narrows to the "mostly receiving" shape.
+>
+> **Fast-path (diamond shape):** `find_high_potential_motifs(pattern_id, motif_type="split_recombine", direction="backward", min_k=3, time_window_hours=24)` is the complementary anchor for the harder concentrator subtype where intermediaries themselves split a single upstream source — the sink looks like a fan_in target but the upstream traffic is a stacked-bipartite diamond. Run alongside `fan_in` when the concentrator has unusually low source diversity at hop 1 but high diversity at hop 0.
 
 ### Typology 14: Geographic Spread
 
@@ -238,6 +244,8 @@ Multiple counterparties with near-symmetric in/out flows (A sends ~X to B, B sen
 5. cross_pattern_profile(pk) → connected_risk assessment
 6. Flag: MIRROR_FLOW_BURST
 ```
+
+> **Fast-path (cohort burst):** when the suspected shape is k coordinated senders fanning to m shared receivers in a tight window (mule-ring / parallel-collusion variant of mirror-flow burst), use `find_high_potential_motifs(pattern_id, motif_type="bipartite_burst", min_k=3, min_m=3, time_window_hours=24)`. The K_{k,m} completeness constraint requires every source to transact with every sink — much tighter than a single-anchor `fan_out` ranking, so the result is a small set of high-confidence coordinated-cohort candidates rather than a high-recall noisy list. Confirm the mirror-flow geometry of each cohort with `find_counterparties` per source.
 
 ### Typology 17: Seasonality Breaker
 

@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.5.2] — 2026-04-28
+
+### Changed
+- `gds-fraud-investigator` SKILL.md and `references/typologies.md`: motif list gains `split_recombine` (scatter-gather smurfing, forward + backward modes) and `bipartite_burst` (complete K_{k,m} coordinated burst). Fast-path typology notes added for the affected typology atoms.
+- `gds-investigator` SKILL.md: structural motif section expanded from 6 to 8 types; cheatsheet documents the `direction` parameter (`split_recombine`) and `min_m` parameter (`bipartite_burst`).
+- No skill content changes. Hypertopos perf fixes (single-seed via_adj delegation across the full motif catalog, batched endpoint deltas in `_score_motif_from_edges`, small-set-first K-set intersection in `bipartite_burst`) reduce score_motif and trace_root_cause latency observed by the gds-fraud-investigator and gds-investigator skills.
+- No skill content changes. Hypertopos cycle_3 enumerator pre-filter reduces score_motif latency on hub seeds observed by gds-fraud-investigator and gds-investigator skills.
+- No skill content changes. Hypertopos chain_k adaptive frontier cap reduces find_high_potential_motifs cold latency observed by gds-fraud-investigator and gds-investigator skills at k>=5.
+
 ## [0.5.1] — 2026-04-21
 
 ### Changed
