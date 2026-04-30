@@ -3,7 +3,7 @@
 > Investigation workflows for AI agents exploring geometric data spaces.
 
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE)
-![Version](https://img.shields.io/badge/version-0.5.2-%235500FF.svg)
+![Version](https://img.shields.io/badge/version-0.6.0-%235500FF.svg)
 
 Structured behaviors that guide AI agents through exploration, investigation, detection, and monitoring of geometric data spaces. Not code — decision frameworks with examples.
 

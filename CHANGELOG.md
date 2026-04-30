@@ -6,6 +6,50 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.6.0] — 2026-04-30
+
+### Changed
+- `gds-investigator` — added cheatsheet entry "Anomaly by absence — `find_density_gaps`"
+  covering YAML-free invocation, gap interpretation, manual TP-verification,
+  and `excluded_dims` behaviour.
+- `gds-fraud-investigator` — added cheatsheet entry "Edge-derived
+  dimensions for AML detection": YAML `edge_dimensions:` block on event
+  patterns lifts transaction-level recall via five build-time per-edge
+  dim functions (`pair_edge_count`, `position_in_chain`,
+  `time_since_pair_last_edge`, `pair_amount_zscore` LOW_VAR,
+  `find_motif_structuring`). Reads off `find_anomalies` polygon `delta`
+  and `dimension_kinds` fields directly; no new MCP tool surface.
+  metadata.version bumped.
+- `gds-monitor` — added cheatsheet entry for `compare_calibrations`
+  (0.6.0 multi-epoch calibration retention).
+- `gds-investigator` — added cheatsheet entry for `decompose_drift`
+  (0.6.0 multi-epoch calibration retention).
+- `gds-investigator` — added cheatsheet entry "Find hidden influencers —
+  entities defining what 'normal' means" (hidden-influencer matrix).
+  metadata.version bumped.
+- `gds-fraud-investigator` — added cheatsheet entries "Detect coordinated
+  population-shift attack" via `find_group_influence` (collusion-ring
+  detection via `reinforcing_factor > 1.5`) AND "AML hidden-influencer
+  triage → SAR candidate workflow" (3-step: surface candidates near θ →
+  match AML adversarial-typology atoms → group-test for ring escalation).
+  metadata.version bumped.
+- `gds-monitor` — added cross-link to `find_calibration_influencers` in the
+  drift / recalibration section ("if alerts say population shifted unexpectedly,
+  find_calibration_influencers helps explain WHY"). metadata.version bumped.
+- `gds-investigator` — added cheatsheet entry "Cross-pattern lead-lag" for
+  `find_lead_lag`: population-aggregated centroid drift
+  cross-correlation between two anchor patterns sharing entity space; how to
+  read `agreement` / `is_significant` / `degenerate_signal` / `reliability`
+  fields; per-dim drill-down via `top_dim_pairs`; per-entity mode through
+  `entity_key`. metadata.version bumped to 0.6.0.
+- `gds-fraud-investigator` — added cheatsheet entry "Cross-pattern lead-lag for
+  AML rapid-escalation": explicit caveat that AML HI/LI-small spheres at
+  `window=2d` give `N=9` epochs with `reliability="low"` and high
+  `max_corr_threshold`; M5 raises empty-cohort on `cohort="fixed"` when
+  patterns observe disjoint entity_lines (account vs chain), so the workflow
+  needs an account-level second anchor pattern (sphere rebuild) to be
+  agent-actionable. metadata.version bumped to 0.6.0.
+
 ## [0.5.2] — 2026-04-28
 
 ### Changed

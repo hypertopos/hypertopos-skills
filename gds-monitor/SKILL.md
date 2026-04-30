@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Requires hypertopos MCP server. Designed for Claude Code and compatible agents.
 metadata:
   author: Karol Kędzia
-  version: 0.5.0
+  version: 0.6.0
   mcp-server: hypertopos
 ---
 
@@ -143,6 +143,22 @@ displacement is dominated by a different high-variance dimension.
 
 ---
 
+## Compare calibration epochs to inspect drift
+
+After a builder rebuild, `compare_calibrations(pattern_id)` (default args)
+returns the drift between the two most recent epochs. Use `top_n=N` to
+limit the ranked dimension list, `verbose=True` to also get the full
+per-dimension breakdown, or pass explicit `v_from` / `v_to` to compare any
+two epochs the sphere has on disk (`list_calibration_versions(pid)` returns
+what's available).
+
+Example query: "Has the population shifted since the last rebuild?" →
+`compare_calibrations("account_pattern")` → check `overall_drift_rms`
+(RMS in σ units, comparable across patterns) and `top_drifted` (which
+dimensions moved the most).
+
+---
+
 ## Regime changes
 
 ```
@@ -224,3 +240,17 @@ Monitor flags, investigator digs. When you find:
 | Orientation, profiling, clustering | gds-explorer |
 
 Full monitoring examples: [references/examples.md](references/examples.md)
+
+## When alerts say population shifted unexpectedly
+
+If `compare_calibrations` between two epochs shows large RMS drift on `mu` or `sigma` and you don't have an obvious data-source change to explain it, run `find_calibration_influencers` to see WHICH entities had highest impact on the new calibration. The hidden-influencer cell often catches data-quality regressions (duplicated records, miscategorised entities) that warped μ/σ across the population.
+
+```
+mcp__hypertopos__find_calibration_influencers(
+    pattern_id="<pattern>",
+    classify="all",
+    top_n=10,
+)
+```
+
+Inspect the `cell_counts` distribution — a healthy population is dominated by `"normal"`. A spike in `"hidden"` or `"distorter"` per epoch is a signal that recalibration was driven by a small subset, not population-wide drift.

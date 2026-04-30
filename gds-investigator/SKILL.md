@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Requires hypertopos MCP server. Designed for Claude Code and compatible agents.
 metadata:
   author: Karol Kędzia
-  version: 0.5.2
+  version: 0.6.0
   mcp-server: hypertopos
 ---
 
@@ -116,6 +116,8 @@ When tracing root causes, use `fdr_alpha=0.05` on `find_anomalies` to ensure the
 **Adaptive FDR (Storey).** When the investigation needs to expand the candidate list without relaxing α, try `fdr_method="storey"` together with `p_value_method="chi2"` — the Storey LSL estimator detects when the population has a real null mass and shrinks q-values accordingly, typically recovering 10–15% more suspects at the same false-discovery guarantee. The two parameters must be set together: Storey with the default rank p-values has no effect (rank p-values are uniform by construction). If the pattern is heavily compressed (every entity looks sub-null) or saturated (every entity already exceeds the null), Storey collapses to BH — keep the default in those regimes.
 
 **Prioritise deteriorating drift.** When `drift_direction` is `"deteriorating"`, the entity is structurally moving away from the null centre — investigation priority is higher than for equally-displaced entities with `"normalizing"` direction, which are already self-correcting. Use this to rank multiple drifting entities by risk rather than raw displacement.
+
+**Decompose drift into intrinsic vs extrinsic.** `decompose_drift(entity, pattern)` (default args) splits the entity's drift between its first and last temporal slice into intrinsic (entity-driven shape change, σ from oldest retained calibration) and extrinsic (residual, population recalibration). The aggregate `intrinsic_fraction` answers: "Of the squared change, what proportion was the entity itself?" Use when `find_drifting_entities` flags an entity and you need to discriminate "this entity actually moved" from "the population calibrated around it". An entity at `intrinsic_fraction ≈ 0.05` didn't really change — recalibration shifted the coordinate system around it. An entity at `intrinsic_fraction ≈ 0.95` is the real signal. `find_drifting_entities` already attaches the same three scalars per entry for batch triage.
 
 ---
 
@@ -387,6 +389,56 @@ If top-K anomalies are dominated by entities that LACK the ground truth property
 3. Filter recall analysis to only entities that HAVE the property
 4. Recommend: "Build a filtered pattern on the relevant subpopulation"
 
+## Cross-pattern lead-lag
+
+When investigating drift across multiple anchor patterns over the SAME entity
+line (e.g. `account_behavior_pattern` × `account_stress_pattern`), use
+`find_lead_lag(pattern_a, pattern_b)` to detect the temporal ordering of
+population-level shifts.
+
+**Default workflow:**
+
+```
+find_lead_lag(
+    pattern_a="account_behavior_pattern",
+    pattern_b="account_stress_pattern",
+    cohort="fixed",            # panel-clean centroid signal
+    fdr_method="storey",       # default — recovers power on rich-signal regimes
+)
+```
+
+**Read the response in this order:**
+
+1. `degenerate_signal` — if `true`, either centroid drift series has zero
+   variance (population is constant per epoch). Treat as no signal and stop.
+2. `agreement` — `"strong"` means centroid lag and volatility lag both
+   agree on direction and magnitude (most trustworthy); `"weak"` means
+   both channels show movement but disagree (population is heterogeneous);
+   `"divergent"` means no coherent lead-lag — do not report a `lag` claim.
+3. `is_significant` — `True` when `abs(correlation) > max_corr_threshold`
+   (peak Bonferroni-adjusted threshold). Reliable headline gate.
+4. `lag` — peak lag in epochs (positive = `pattern_a` leads `pattern_b`).
+   Multiply by the temporal `window` (sphere config) for wall-clock units.
+5. `top_dim_pairs` — even when `is_significant=False`, the top entries
+   ranked by ascending `q_value` (then |corr|) surface the strongest
+   leading dim pairs for hypothesis generation. The displayed pairs may
+   not be FDR-significant on small `N` because Bonferroni-over-lags + BH
+   over `D_A * D_B` pairs is intentionally conservative.
+
+**Drill-down:** pass `entity_key=...` to replace the population centroid
+with that entity's own delta trajectory. Useful for case storytelling
+("for customer X, behavior_change preceded stress_change by 2 epochs"),
+but per-entity reliability is `"low"` at most realistic N.
+
+**Verbose mode:** `verbose=True` returns the full `D_A × D_B` matrix in
+`per_dim_pairs` (sorted by ascending q-value); use when you need to scan
+the full breakdown rather than the top 10.
+
+**Limit reminder:** `find_lead_lag` requires both patterns to share the
+underlying entity space — `cohort="fixed"` raises empty-cohort otherwise.
+On disjoint entity spaces (e.g. accounts vs chains in AML) `cohort="all"`
+typically lands in `degenerate_signal=true`.
+
 ## False positive assessment
 
 For every anomaly finding, consider whether it is a true positive or false positive:
@@ -538,3 +590,50 @@ Every finding must include a concrete remediation step — not just
 | Orientation, profiling, clustering | gds-explorer |
 
 Full investigation examples: [references/examples.md](references/examples.md)
+
+## Find hidden influencers — entities defining what "normal" means
+
+Standard anomaly detection asks "how far is this entity from normal?". The inverse question is "how much does this entity SHAPE what 'normal' means?". A hidden influencer has high impact on coordinate system calibration but LOW anomaly score — invisible to anomaly scans, yet removing it shifts μ/σ enough to flip other entities' classifications.
+
+```
+mcp__hypertopos__find_calibration_influencers(
+    pattern_id="<pattern>",
+    classify="hidden",
+    top_n=10,
+)
+```
+
+Returns entries with `total_impact` (high), `delta_norm` (low), `classification="hidden"`, `top_dim_contributions[]` (which dims drive the impact). For coordinated detection: collect 2-5 candidates and pass as one group to `find_group_influence` — `reinforcing_factor > 1.5` confirms coordinated pull.
+
+Common operational triggers:
+- **Data quality audit** — hidden influencer may be a duplicated record warping the entire coordinate system. Find → fix data → rebuild → previously-masked anomalies surface.
+- **Adversarial AML** — coordinated account injection to shift coordinates and mask fraud is the canonical hidden-influencer signature.
+- **Explaining anomaly flux** — when `compare_calibrations` shows population shifted between epochs, hidden influencer analysis explains WHY.
+
+`verbose=True` adds `cascading_flip_count` per entry — count of OTHER entities that flip is_anomaly classification after this entity's removal. Use when the candidate has high impact but you need a quantitative "blast radius" before recommending exclusion.
+
+## Anomaly by absence — `find_density_gaps`
+
+`find_anomalies` surfaces entities at unusual positions in the geometry. `find_density_gaps` answers the inverse: which combinations of dim values **should** be populated under the independence null but are not? Useful when the investigation shifts from "who is anomalous" to "what's structurally missing".
+
+```python
+result = mcp__hypertopos__find_density_gaps(
+    pattern_id="account_pattern", top_n=5,
+)
+
+for gap in result["gaps"]:
+    print(
+        f'{gap["dim_i"]} ∈ [{gap["delta_range_i"][0]:.2g}, {gap["delta_range_i"][1]:.2g}] '
+        f'AND {gap["dim_j"]} ∈ [{gap["delta_range_j"][0]:.2g}, {gap["delta_range_j"][1]:.2g}] '
+        f'— observed {gap["observed"]}, expected {gap["expected"]:.1f}, '
+        f'q={gap["q_value"]:.2e}'
+    )
+```
+
+**Range space note:** `delta_range_*` is in **z-score (delta) space**, NOT raw property units. Dim labels with the `_d_` prefix mean "delta of <property>"; e.g. `_d_tx_count ∈ [-0.6, -0.4]` is "tx_count z-scored against the population sits between -0.6 σ and -0.4 σ". Raw-property-range mapping is a follow-up; today inverse-transform from points table is your job if you want raw units in the narrative.
+
+**When the gap is real:** independence + uniform-marginal expectation says the bin should hold ~N entities, observed is far below, q ≤ α after BH. Interpretation: there's structural avoidance of this combination — possibly business logic, regulatory cutoff, or a class of entities that exits when both features cross specific thresholds together.
+
+**When the gap is a binning artefact (FP):** filter `find_anomalies(filter=delta_range_i AND delta_range_j)` and check the count. If the count is non-zero the cell was mis-binned at the histogram edge; deprioritise the cell. The probe report and tests cover the boundary cases, but real-data gaps benefit from one-shot manual TP-verify before acting on them.
+
+**Excluded dims:** bernoulli, degenerate, and very sparse (<30 finite values) dims are auto-excluded and reported in `excluded_dims` with `reason`. If an expected dim is missing from the gap report, look here first.
