@@ -6,6 +6,36 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.6.1] — 2026-05-01
+
+### Changed
+- `gds-fraud-investigator` — added cheatsheet entry "Account-level recall
+  via aggregated edge dims" covering the new anchor-pattern
+  `edge_dim_aggregations:` YAML block (per-edge sidecar dims rolled up
+  to per-anchor `_mean` / `_max` columns), the supported anchor regimes
+  (`single`, `pair`), and how to read the resulting aggregates on a
+  suspicious account (`pair_edge_count_max`, `find_motif_structuring_mean`,
+  `position_in_chain_max`, `time_since_pair_last_edge_mean`).
+- `gds-fraud-investigator` — added cheatsheet entry "Declarative
+  structuring chain detection" for the new
+  `HopPredicate.amount_ratio_to_prev` field on `find_motif_by_hops`,
+  including the canonical deposit → split → wire example, the
+  first-hop validation rule, and when to prefer this over the
+  closed-vocab `find_motif_structuring`.
+- `gds-fraud-investigator` — added cheatsheet entry "Long-chain
+  layering with a global time window" for the new top-level
+  `time_window_hours` parameter on `find_motif_by_hops` (independent
+  global cap, layered with per-hop `time_delta_max_hours`); explicitly
+  documents the 1..8 hop count cap matching the `chain_k` motif
+  vocabulary.
+- `gds-fraud-investigator` — added cheatsheet entry "Filter chains by
+  anomalous intermediaries" for the new
+  `HopPredicate.require_anomalous_entity` field on `find_motif_by_hops`
+  (per-hop bool filtering by anchor companion `is_anomaly=True`),
+  including the seed-not-checked rule and the
+  `max_results`-applies-after-filter semantic. Closes the X1
+  declarative predicate set.
+
 ## [0.6.0] — 2026-04-30
 
 ### Changed
