@@ -768,6 +768,67 @@ These lift account-level recall on workflows where the per-tx geometry signal is
 
 **Anchor regimes supported:** `single` (account-style, anchor PK matches edge `from_key` OR `to_key`) and `pair` (composite k=2 anchor like `account_pairs`, PK encoded as `<from><separator><to>` per the `composite_lines:` block — separator defaults to `→`). Chain anchors and k>2 composite anchors raise `NotImplementedError` at build time; aggregation across chain membership ships in 0.6.2.
 
+## Chain-level recall via aggregated edge dims
+
+A chain-anchor pattern (auto-emitted from a `chain_lines:` YAML block) can
+pull the per-edge sidecar dims onto per-chain columns by adding the
+`edge_dim_aggregations:` block inside `chain_lines:`:
+
+```yaml
+chain_lines:
+  tx_chains:
+    event_line: transactions
+    from_col: from_account
+    to_col: to_account
+    features: [hop_count, is_cyclic, time_span_hours]
+    edge_dim_aggregations:
+      from: tx_pattern                  # event pattern that emitted the sidecar
+      dims: [find_motif_structuring, position_in_chain]
+```
+
+For each declared source dim, the builder bakes `<dim>_mean` and `<dim>_max`
+aggregates into the chain anchor polygon. Chain-level investigation reads
+them off `find_anomalies` / `explain_anomaly` exactly the same way as any
+other dim — no new MCP tool, no new flag.
+
+**Reading aggregates on a suspicious chain:**
+- `find_motif_structuring_mean` materially > 0 → meaningful share of the
+  chain's hops sit inside a structuring motif; the chain itself is a
+  layering candidate
+- `position_in_chain_max` very high → at least one hop in the chain is
+  embedded deep inside a longer chain (chain-of-chains topology, classic
+  layering through intermediate accounts)
+- `pair_edge_count_mean` very high → all hops cluster on already-recurring
+  pairs (chain re-uses known counter-party flows; counter-party concentration
+  signal at the chain level)
+- `find_motif_structuring_max == 1.0` AND `find_motif_structuring_mean` low
+  → only one or two hops are structuring-like; chain is a partial-overlap
+  case rather than a clean structuring chain
+
+**Mechanism — when chain-level aggregation is hypothesised to help:**
+chain-level signal accumulates over *paths*, not over *entities*. An
+account that hosts five anomalous transactions out of 30 has 5/30 ≈ 17%
+account-level structuring rate. A chain that strings those five
+transactions together has 5/5 = 100% chain-level rate. The chain regime
+is therefore *hypothesised* to surface the layering pattern that would
+otherwise dilute into the account-level noise floor.
+
+**Empirical lift on real labels — TBD.** Treat this entry as
+architectural completeness for the agent vocabulary, not as a
+confirmed-lift recall booster. The aggregated edge dims expose a
+structurally consistent feature surface, but no public benchmark has
+yet shown a measurable AUROC delta from these aggregations alone
+against ground-truth laundering labels. Prior on signal lift is
+correspondingly low until the upstream `find_motif_structuring` /
+`position_in_chain` predicates are validated on a labelled dataset
+where they discriminate above the population base rate.
+
+**Anchor regimes supported:** chain anchor patterns auto-emitted via
+`chain_lines:` block. Membership lookup via the `chain_events` property
+column on the chain anchor line (comma-joined event_keys, populated at
+chain extraction time). External chain imports (user-loaded membership)
+are not supported.
+
 ## Declarative structuring chain detection
 
 When the closed-vocab `find_motif_structuring` is too rigid (you want a different chain length, a custom amount-decay shape, or a per-hop edge-dim filter), reach for `find_motif_by_hops` with the `amount_ratio_to_prev` predicate. The classic deposit → split → wire signature is "each next hop carries materially less than the previous one" — that maps directly to a per-hop ratio cap.

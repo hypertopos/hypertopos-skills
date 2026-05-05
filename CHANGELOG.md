@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.6.2] — 2026-05-05
+
+### Changed
+- `gds-fraud-investigator` — added cheatsheet entry "Chain-level recall
+  via aggregated edge dims" covering the new chain-anchor
+  `edge_dim_aggregations:` regime (third anchor_kind alongside single
+  and pair), how to declare it inside `chain_lines:`, and how to read
+  the resulting `_mean` / `_max` aggregates on a suspicious chain.
+
 ## [0.6.1] — 2026-05-01
 
 ### Changed
