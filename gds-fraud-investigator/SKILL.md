@@ -751,12 +751,24 @@ patterns:
     entity_line: accounts
     edge_dim_aggregations:
       from: tx_pattern              # event pattern that emitted the sidecar
-      dims: [pair_edge_count, find_motif_structuring]   # optional subset
+      dims: [pair_edge_count, find_motif_structuring]   # all five aggregates per dim
     relations:
       ...
 ```
 
-For each declared source dim, the builder bakes two aggregates into the anchor polygon: `<dim>_mean` and `<dim>_max`. Account-level investigation reads them off `find_anomalies` and `explain_anomaly` exactly the same way as any other dim — no new MCP tool, no new flag.
+For each declared source dim, the builder bakes the five canonical aggregates into the anchor polygon: `<dim>_mean`, `<dim>_max`, `<dim>_std`, `<dim>_p95`, `<dim>_count_above_threshold` (count of edges whose source-dim value exceeds the population p95 cutoff persisted in the calibration epoch). Account-level investigation reads them off `find_anomalies` and `explain_anomaly` exactly the same way as any other dim — no new MCP tool, no new flag.
+
+When five aggregates per dim is more than you need, switch `dims:` from list to mapping and pick a per-dim subset:
+
+```yaml
+    edge_dim_aggregations:
+      from: tx_pattern
+      dims:
+        pair_edge_count: [count_above_threshold]
+        find_motif_structuring: [mean, max]
+```
+
+This emits only three aggregated columns (`pair_edge_count_count_above_threshold`, `find_motif_structuring_mean`, `find_motif_structuring_max`) instead of ten — useful when narrow signals dominate the investigation and the extra columns dilute `delta_norm`.
 
 **Reading aggregates on a suspicious account:**
 - `pair_edge_count_max` very high → account participates in at least one heavily-recurring pair (counter-party concentration risk)
@@ -766,7 +778,7 @@ For each declared source dim, the builder bakes two aggregates into the anchor p
 
 These lift account-level recall on workflows where the per-tx geometry signal is faint (transaction polygons calibrate against a 5M-row population so a single anomalous tx is hard to surface alone) but accumulates clearly at the entity level (10 anomalous transactions out of 30 hop into a single account's `find_motif_structuring_mean`).
 
-**Anchor regimes supported:** `single` (account-style, anchor PK matches edge `from_key` OR `to_key`) and `pair` (composite k=2 anchor like `account_pairs`, PK encoded as `<from><separator><to>` per the `composite_lines:` block — separator defaults to `→`). Chain anchors and k>2 composite anchors raise `NotImplementedError` at build time; aggregation across chain membership ships in 0.6.2.
+**Anchor regimes supported:** `single` (account-style, anchor PK matches edge `from_key` OR `to_key`), `pair` (composite k=2 anchor like `account_pairs`, PK encoded as `<from><separator><to>` per the `composite_lines:` block — separator defaults to `→`), `chain` (auto-emitted from `chain_lines:`), and k>2 composite anchors (tripartite and beyond, where `key_cols[0:2]` map positionally to edge endpoints and remaining `key_cols` join on the event_table).
 
 ## Chain-level recall via aggregated edge dims
 
@@ -786,10 +798,13 @@ chain_lines:
       dims: [find_motif_structuring, position_in_chain]
 ```
 
-For each declared source dim, the builder bakes `<dim>_mean` and `<dim>_max`
-aggregates into the chain anchor polygon. Chain-level investigation reads
+For each declared source dim, the builder bakes the five canonical aggregates
+into the chain anchor polygon: `<dim>_mean`, `<dim>_max`, `<dim>_std`,
+`<dim>_p95`, `<dim>_count_above_threshold`. Chain-level investigation reads
 them off `find_anomalies` / `explain_anomaly` exactly the same way as any
-other dim — no new MCP tool, no new flag.
+other dim — no new MCP tool, no new flag. Switch `dims:` to mapping form to
+pick a per-dim subset and avoid the polygon-dim balloon when only narrow
+signals matter.
 
 **Reading aggregates on a suspicious chain:**
 - `find_motif_structuring_mean` materially > 0 → meaningful share of the

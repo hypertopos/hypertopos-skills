@@ -157,6 +157,14 @@ Example query: "Has the population shifted since the last rebuild?" →
 (RMS in σ units, comparable across patterns) and `top_drifted` (which
 dimensions moved the most).
 
+When the anchor pattern declares `edge_dim_aggregations:`, the report also
+carries `edge_dim_threshold_drift` — a per-source-dim `{from, to, delta}`
+map of the `_count_above_threshold` cutoff. A large delta means the
+population p95 of that source dim shifted between epochs, so the same
+agent narrative ("X anomalous on `_count_above_threshold` = +Nσ") does
+NOT mean the same edge regime as in the previous epoch. Worth flagging
+when it shows up in monitoring alongside a non-zero `overall_drift_rms`.
+
 ---
 
 ## Regime changes

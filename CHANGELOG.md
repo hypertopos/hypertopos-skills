@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.6.3] — 2026-05-06
+
+### Changed
+- `gds-fraud-investigator` — account-level recall and chain-level recall
+  sections updated to document the five canonical aggregates baked per
+  source dim (`_mean` / `_max` / `_std` / `_p95` / `_count_above_threshold`)
+  and the new mapping-form `dims:` selector for emitting a per-dim
+  subset. The anchor regimes line is corrected — chain anchors and k>2
+  composite anchors are supported.
+- `gds-monitor` — calibration drift cheatsheet adds a paragraph on the
+  new `edge_dim_threshold_drift` field returned by `compare_calibrations`,
+  and how to read it alongside `overall_drift_rms` when an anchor
+  pattern declares `edge_dim_aggregations:`.
+
 ## [0.6.2] — 2026-05-05
 
 ### Changed
