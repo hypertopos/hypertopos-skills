@@ -356,6 +356,24 @@ discover_chains(key, pattern_id)        -> runtime chain discovery (no pre-built
   Works directly on the edge table via temporal BFS. Use when chain lines
   are unavailable or you want chains from a specific entity without full extract.
   Tune min_hops (default 2) and direction ("forward"/"backward"/"both").
+
+# When the sphere DOES have a chain anchor pattern (built from chain_lines:),
+# the chain-coherent investigative loop offers a stronger composition:
+find_chains_with_coherent_anomaly(chain_pattern_id, anchor_pattern_id, min_hops=3)
+  Population sweep — flag chains where ≥min_hops consecutive entities are
+  individually anomalous AND share the same dominant delta dim. Distinct
+  axis from find_anomalies on the chain pattern (which scores chain shape).
+anomaly_propagation_in_chain(chain_id, chain_pattern_id, anchor_pattern_id)
+  Drill into a single flagged chain — returns hop-by-hop anomaly trace
+  (is_anomaly + delta_norm + top_dim + delta_rank_pct per hop).
+classify_chain_typology(chain_id, ...)
+  Five-axis label per chain: shape / peak_position / position_in_chain /
+  extension_signals / dominant_top_dim. Triage tag without re-reading hops.
+extend_chain(chain_id, ..., direction="forward"|"backward")
+  Suggest extension entities at the boundary of the chain's anomalous run
+  using the chain reverse index. Anomalous candidates are "where to look
+  next" investigation targets. See gds-fraud-investigator R9 for the full
+  flag→trace→label→cross-check→extend→deep-dive workflow.
 ```
 
 `source_count >= 2` = investigate thoroughly. `source_count == 1` = likely FP.

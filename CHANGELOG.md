@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.6.4] — 2026-05-07
+
+### Changed
+- `gds-fraud-investigator` — Recipe R9 (Chain-Coherent Cascade) tool sequence expanded into the full six-step investigative loop: flag → trace → label → cross-check → extend → deep-dive. Documents the composition of `find_chains_with_coherent_anomaly` (population sweep), `anomaly_propagation_in_chain` (per-chain hop trace), `classify_chain_typology` (five-axis triage tag), `find_anomalies` cross-check on the chain pattern, `extend_chain` (boundary entity widening), and standard Phase 2 deep-dive on candidate entities.
+- `gds-investigator` — tool palette gains a cross-link to the chain-coherent investigative loop primitives when the sphere has a chain anchor pattern. Defers the full workflow to `gds-fraud-investigator` R9 to avoid duplication.
+
 ## [0.6.3] — 2026-05-06
 
 ### Changed

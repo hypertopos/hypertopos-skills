@@ -347,6 +347,7 @@ Use these when the sphere has event patterns with edge tables (`edge_stats` retu
 | R6 Concentration Risk | single counterparty dominates flow | Over-reliance / control |
 | R7 Benford's Law | first-digit distribution of amounts | Fabricated transactions |
 | R8 Witness Cohort | high witness overlap + trajectory convergence, no existing edge | Fraud cohort expansion — surface peers sharing the target's anomaly signature |
+| R9 Chain-Coherent Cascade | ≥ N consecutive entities along a stored chain individually anomalous on the same dominant dim | Layering paths whose chain-level shape looks normal but composition is uniformly suspicious |
 
 ### R1 — Mirror Transaction Detection
 
@@ -452,6 +453,30 @@ Use these when the sphere has event patterns with edge tables (`edge_stats` retu
 - Neo4j GDS link prediction: topological features only (Adamic-Adar, common neighbors), no witness sets, no population-relative geometry
 - ML link prediction (Node2Vec, GraphSAGE): requires training, no interpretability, no labeled data needed for hypertopos
 - Vector DB ANN: nearest neighbors but no graph awareness, no edge exclusion
+
+### R9 — Chain-Coherent Cascade (Composition-based Layering)
+
+**Pattern:** A stored chain (anchor pattern built from `chain_lines:`) hops through ≥ N consecutive entity-anchor positions that are individually anomalous in the entity-anchor pattern AND share the same dominant delta dimension. The chain-level shape (hop count, time span, amount decay) may look unremarkable, but the *composition* of the path — every consecutive entity flagged for the same structural reason — is the signal.
+
+**Tool sequence (full investigative loop — flag → trace → label → extend):**
+1. **Flag** — `find_chains_with_coherent_anomaly(pattern_id="<chain_pattern>", anchor_pattern_id="<entity_anchor>", min_hops=3, max_results=100)` sweeps all chains in the chain pattern, returns ranked runs (chain_id, run_start_idx, run_length, top_dim, run_keys, max_delta_norm).
+2. **Trace** — for each top flagged chain: `anomaly_propagation_in_chain(chain_id, "<chain_pattern>", anchor_pattern_id="<entity_anchor>")` returns the full per-hop progression — see WHERE the anomaly intensity peaks and WHERE it breaks. Hops carry `is_anomaly`, `delta_norm`, `top_dim`, `delta_rank_pct`. Run end with low `delta_rank_pct` = clean exit; with elevated rank = soft boundary worth extending.
+3. **Label** — `classify_chain_typology(chain_id, ...)` wraps the trace and returns a five-axis operational tag: `shape` (rising / falling / peak-position), `position_in_chain` (leading / transit / terminal / full-chain), `extension_signals` (forward / backward booleans), plus `dominant_top_dim` across the whole chain. Lets investigator triage chains by typology without re-reading hop sequences.
+4. **Cross-check** — compare with `find_anomalies(<chain_pattern>)`: chains in BOTH sets are highest-confidence (chain shape AND chain composition agree); chains in coherent-anomaly-only are missed by chain-shape scoring; chains in baseline-only are flagged for shape (e.g. amount decay) but not composition. The two are orthogonal detectors.
+5. **Extend** — when `extension_signals.forward` or `.backward` is True (or the trace's breakpoint hop is in `delta_rank_pct >= 80` band): `extend_chain(chain_id, ..., direction="forward"|"backward")` returns ranked candidate entities that follow / precede the boundary in OTHER chains. Anomalous candidates with high `delta_norm` are prime targets for widening the investigation into the surrounding ring.
+6. **Deep-dive per candidate** — for each high-rank extension target: `find_chains_for_entity(candidate_key, <chain_pattern>)` to enumerate which chains contain it, then standard Phase 2 (Entity 360) on those chains' anchor entities.
+
+**Interpretation:** A run of length 4 with `top_dim="find_motif_structuring_max"` is textbook structuring — every account on the path is individually flagged for high motif-structuring activity. A run on `top_dim="pair_edge_count_count_above_threshold"` indicates burst-pair behaviour clustering. Mixed top_dim across the population (3-5 distinct drivers in the top 100 results) signals diverse layering vectors, not a single typology.
+
+**Complementary, not replacement:** This primitive and `find_anomalies(<chain_pattern>)` are orthogonal detectors — they catch different laundering chains. On AML HI-small the overlap was ≈ 1.4 % of either set's top 500. Use both for full coverage.
+
+**False positive guard:** Hubs that appear as terminal nodes of many chains will inflate the result count (multiple chain_ids pointing to the same run pattern). The `run_keys` field reveals duplication — when multiple matched chains share the same `run_keys` tail, treat as one cluster. Always verify with `find_counterparties` and `cross_pattern_profile` on the run entities before escalation.
+
+**Why this is unique vs other tools:**
+- `find_anomalies(<chain_pattern>)`: scores chain SHAPE features (hop_count, amount_decay, time_span) — the chain looks unusual as a whole. Different axis from chain composition.
+- `trace_root_cause(entity_key, anchor_pattern_id)`: branching DAG from one root via counterparties. Different structure: tree from a single source, not a stored linear chain.
+- `decompose_drift(entity_key, anchor_pattern_id)`: temporal slice diff for one entity. Different axis: time, single entity.
+- `find_motif_by_hops` with `require_anomalous_entity` per hop: runtime motif enumeration with anchor-anomaly check, requires explicit motif declaration. Operates on the edge table, not on persisted chain anchor patterns.
 
 ## Investigation Memory
 
