@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.6.5] — 2026-05-08
+
+### Changed
+- `gds-investigator` — chain-coherent palette extended with `find_chains_for_entity` as the deep-dive accessor: reverse lookup that lists every chain a given entity participates in (deduplicated; cyclic / self-revisiting chains surface once per chain). Closes the cross-link to the `gds-fraud-investigator` R9 step 6 (per-candidate deep-dive).
+
 ## [0.6.4] — 2026-05-07
 
 ### Changed

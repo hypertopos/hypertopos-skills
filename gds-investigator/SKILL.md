@@ -372,7 +372,12 @@ classify_chain_typology(chain_id, ...)
 extend_chain(chain_id, ..., direction="forward"|"backward")
   Suggest extension entities at the boundary of the chain's anomalous run
   using the chain reverse index. Anomalous candidates are "where to look
-  next" investigation targets. See gds-fraud-investigator R9 for the full
+  next" investigation targets.
+find_chains_for_entity(entity_key, chain_pattern_id)
+  Reverse lookup — list every chain a given entity participates in
+  (deduplicated; cyclic / self-revisiting chains surface once). The
+  deep-dive accessor for chain extension candidates returned by
+  extend_chain. See gds-fraud-investigator R9 for the full
   flag→trace→label→cross-check→extend→deep-dive workflow.
 ```
 
