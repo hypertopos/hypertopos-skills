@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Requires hypertopos MCP server. Designed for Claude Code and compatible agents.
 metadata:
   author: Karol Kędzia
-  version: 0.6.0
+  version: 0.6.6
   mcp-server: hypertopos
 ---
 
@@ -164,6 +164,50 @@ population p95 of that source dim shifted between epochs, so the same
 agent narrative ("X anomalous on `_count_above_threshold` = +Nσ") does
 NOT mean the same edge regime as in the previous epoch. Worth flagging
 when it shows up in monitoring alongside a non-zero `overall_drift_rms`.
+
+---
+
+## Threshold sensitivity at a glance
+
+`sphere_overview()` carries a `theta_sensitivity_summary` block per
+pattern (when populated by a recent builder rebuild). The block tells
+the agent — without a per-pattern drilldown — whether the chosen
+`anomaly_percentile` is in a smooth region of the population's
+`delta_norm` distribution or perched near a heavy-tail jump.
+
+Fields per pattern:
+
+- `stable_band_from` / `stable_band_to` / `stable_band_length` — the
+  longest contiguous run of percentiles where adjacent-pair
+  `theta_mean` ratio stays below 1.30. Within this band, recalibrating
+  to a different percentile shifts the threshold by less than 30 % per
+  step.
+- `n_cliffs` — number of percentile boundaries (in `p90 .. p99`)
+  where the `theta_mean` ratio is at or above 1.50. A single move
+  across a cliff jumps the threshold by 50 % or more — heavy-tail
+  region of the distribution.
+- `theta_at_p95` — the production-default p95 threshold value for
+  quick visual reference.
+
+Quick triage rules:
+
+- **`stable_band_length >= 8` AND `n_cliffs == 0`**: pattern is
+  light-tail and the chosen percentile sits comfortably. Recalibration
+  moves anywhere in the band are safe.
+- **`stable_band_length <= 4` OR `n_cliffs >= 2`**: heavy-tail
+  pattern. Production p95 may already sit on a cliff edge. Call
+  `theta_sensitivity(pattern_id)` for the full per-percentile sweep
+  and inspect the `cliffs[]` list before any recalibration proposal.
+- **p95 inside a cliff pair** (e.g. `cliffs[0]['from'] == 'p95'`):
+  do not recalibrate up — moving to p96 jumps theta materially.
+  Consider tightening the percentile down (`p93` or below) instead.
+- **Empty `theta_sensitivity_summary`**: the sphere predates the
+  diagnostic. Trigger a rebuild before relying on this surface.
+
+The full per-percentile sweep lives behind `theta_sensitivity(pattern_id)`
+— use that when the summary flags a non-trivial structure (cliffs > 0
+or stable_band_length < 6) and you need the exact ratios to decide on
+a safe recalibration move.
 
 ---
 

@@ -2,6 +2,8 @@
 
 Each typology is a sequence of MCP calls. Execute step-by-step.
 
+> **Newer recipes in `SKILL.md`.** The R-numbered recipe family in the main skill (R1-R11) is the canonical entry point for typology recipes. The Phase 3 typologies below are the legacy presentation kept for reference. New domain-specific recipes — R10 (Trade-based money laundering), R11 (Mule network discovery) — live in `SKILL.md` after R9. When a Phase 3 typology composes the same primitives as an R-recipe, prefer the R-recipe in investigator workflows.
+
 ### Typology 1: Structured Layering
 
 Multi-hop structuring with rounded amounts across jurisdictions.

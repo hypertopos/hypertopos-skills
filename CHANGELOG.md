@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.6.6] — 2026-05-09
+
+### Removed
+- `gds-fraud-investigator` — R12 (Cuckoo-smurfing / account hijacking) recipe removed from `SKILL.md` and the `references/typologies.md` cross-ref note. The recipe was shipped as `Status: Exploratory` and is retired rather than kept under that tag without supporting empirical evidence. R10 (TBM) and R11 (Mule network discovery) remain in `SKILL.md`.
+
+### Added
+- `gds-monitor` — new "Threshold sensitivity at a glance" cheatsheet section covering how to read the `theta_sensitivity_summary` block on each `sphere_overview` entry. Documents the four exposed fields (`stable_band_from`, `stable_band_to`, `stable_band_length`, `n_cliffs`, `theta_at_p95`) and triage rules for monitoring workflows: `stable_band_length >= 8` with `n_cliffs == 0` is a smooth pattern, `stable_band_length <= 4` or `n_cliffs >= 2` triggers a drill-down via the `theta_sensitivity(pattern_id)` tool, and a p95 boundary that participates in a cliff pair signals a recalibration risk that should not be moved upward.
+- `gds-fraud-investigator` — three new typology recipes after R9 covering domain-specific laundering patterns: R10 (Trade-based money laundering — multi-currency cross-bank flows with amount mismatches), R11 (Mule network discovery — density-based clusters of low-volume coordinated accounts), R12 (Cuckoo-smurfing — account hijacking detected via neighbor contamination + velocity burst + currency diversity change). Each recipe documents Pattern, Tool sequence, Score formula, Interpretation, False positive guard, and Why-unique-vs-other-recipes; each carries an explicit `Status: Exploratory` tag with guidance for investigators to treat output as candidate sets, not verdicts. Cross-ref note added to `references/typologies.md` pointing to the R-numbered family in `SKILL.md` as the canonical entry point.
+
+### Changed
+- `gds-fraud-investigator` — added cheatsheet section "Feature curation via stratified correlation gates" covering the three-lens approach (all-population, stratified per-bucket, partial point-biserial correlation) for sanity-checking whether a chain or account feature carries laundering signal independent of the natural confounder (chain length / account transaction volume). Documents the four cross-bucket verdicts (ROBUST / DIRECTION-INCONSISTENT / LENGTH-MEDIATED / VOLUME-MEDIATED / NOISE), when to use each lens during investigation, how to interpret verdicts in a SAR / triage context, and the heterogeneous-label hypothesis for cases where multiple features show direction-inconsistency.
+- `gds-fraud-investigator` — Recipe R9 (Chain-Coherent Cascade) gains "Agent-friendly query forms via `detect_pattern`" subsection. Six-row table maps each step of the R9 loop (Flag / Trace / Label / Extend / Deep-dive) to the natural-language form the `detect_pattern` smart-mode router recognises. Agents don't need to remember primitive names — chain anchor pattern + entity anchor pattern + `CHAIN-<digits>` tokens are auto-extracted from the query. Includes a fallback note explaining keyword-matching behaviour when LLM sampling is unavailable.
+
 ## [0.6.5] — 2026-05-08
 
 ### Changed

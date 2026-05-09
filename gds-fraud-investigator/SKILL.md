@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Requires hypertopos MCP server with a financial transaction sphere (account, pair, chain patterns).
 metadata:
   author: Karol Kędzia
-  version: 0.6.1
+  version: 0.6.6
   mcp-server: hypertopos
 ---
 
@@ -478,6 +478,58 @@ Use these when the sphere has event patterns with edge tables (`edge_stats` retu
 - `decompose_drift(entity_key, anchor_pattern_id)`: temporal slice diff for one entity. Different axis: time, single entity.
 - `find_motif_by_hops` with `require_anomalous_entity` per hop: runtime motif enumeration with anchor-anomaly check, requires explicit motif declaration. Operates on the edge table, not on persisted chain anchor patterns.
 
+**Agent-friendly query forms via `detect_pattern`.** Each step of the R9 loop has a natural-language form that the smart-mode router recognises and routes to the right primitive — agents don't need to remember primitive names, just the investigation intent. Chain anchor pattern + entity anchor pattern are auto-detected from sphere context; chain-id tokens of the form `CHAIN-<digits>` are extracted from the query and threaded through.
+
+| step | natural-language query | routes to |
+|---|---|---|
+| Flag (population sweep) | `find chains where consecutive accounts are individually anomalous` | `find_chains_with_coherent_anomaly` |
+| Trace (per-chain hop-by-hop) | `trace chain CHAIN-XXXXXX hop by hop` | `anomaly_propagation_in_chain` |
+| Label (typology) | `classify chain CHAIN-XXXXXX typology` | `classify_chain_typology` |
+| Extend (boundary candidates) | `extend chain CHAIN-XXXXXX forward` | `extend_chain` |
+
+The Flag query phrasing matches the suggestion `open_sphere` surfaces in `suggested_queries` when the sphere has both a chain anchor pattern and a non-chain entity anchor pattern, so agents discover the loop entry point without drilling into `sphere_overview`. Equivalent phrasings like "find chains where consecutive accounts cascade through structuring" or "anomaly cascade in chains" hit the same routing. After flagging, follow the loop sequentially: Flag → Trace → Label → cross-check (`find_anomalies(<chain_pattern>)` for chain SHAPE) → Extend. Each step's natural-language form is independent.
+
+**Step 6 deep-dive — direct call only.** `find_chains_for_entity(<account_key>, <chain_pattern>)` is **not** routable via natural language in the current implementation: the smart-mode router doesn't extract free-form entity keys from queries (chain-id tokens have a fixed `CHAIN-<digits>` shape; entity keys vary per sphere). After Extend surfaces candidates, the agent must call `find_chains_for_entity` directly with each candidate's primary_key to enumerate the chains they participate in. The R9 narrative still ends with this deep-dive step; only the natural-language entry point is missing.
+
+When the smart-mode router doesn't have an LLM available it falls back to keyword matching on the same intent set. The keyword fallback skips chain-id-required steps when no `CHAIN-<digits>` token is present in the query, so a query like "classify chain shape" without a specific chain_id won't crash — just no per-chain step lands in the plan.
+
+### R10 — Trade-Based Money Laundering (TBM)
+
+**Pattern:** Multi-currency cross-bank flows with amount mismatches typical for over/under-invoicing. Funds traverse motifs whose hops cross both currency and bank boundaries, and the per-hop amounts diverge in a way that does not match plain FX rate movement (i.e. the "invoice" leg and the "payment" leg disagree by more than expected currency-conversion noise).
+
+**Tool sequence:**
+1. `find_high_potential_motifs(pattern_id="<event_pattern>", motif_type="fan_out", seeds=<suspects>, top_n=20, time_window_hours=24)` — rank short fan-outs by event-aware potential. Seeds typically come from `find_anomalies` on `account_pattern` filtered to `is_anomaly=true`. (`split_recombine` and `bipartite_burst` are alternative motif types worth combining when surface is sparse.)
+2. `anomalous_edges(from_key, to_key, pattern_id="<event_pattern>")` along each surfaced hop — read the edge dimensions to get currency, bank, amount per leg
+3. Filter: keep paths where `currency_diversity >= 2` (multi-currency along the path) AND `cross_bank_count >= 2` (multi-bank along the path)
+4. Score each surviving path: `currency_diversity × cross_bank_count × max(delta_norm along the path)` — entities on high-scoring paths are the candidates
+
+**Interpretation:** TBM signature is structural: the *combination* of multi-currency + multi-bank + amount distortion is what flags it. A fan-out that crosses one currency boundary or one bank boundary is too noisy a signal alone. Once flagged, drill in with `cross_pattern_profile` on the seed and `find_counterparties` on the seed's bottleneck hop to verify the trade-finance context (importer/exporter pair vs unrelated parties).
+
+**False positive guard:** legitimate trade finance also produces multi-currency cross-border flows. The discriminator is the `is_anomaly=true` requirement on at least one path entity AND a non-trivial `delta_norm` on the dominant hop. Without that, you're scoring legitimate import/export businesses.
+
+**Why unique vs other recipes:** R1 (mirror) and R2 (rapid layering) operate on single-currency same-day patterns and explicitly do not require currency or bank diversity. R3 (structuring) is amount-distribution-based, not flow-topology-based. R10 specifically requires currency_diversity ≥ 2 AND cross_bank_count ≥ 2 along the surfaced path, which is the structural signature of TBM as opposed to other layering typologies.
+
+**Status:** Exploratory — empirical lift TBD. Recipe captures architectural completeness (composes existing primitives into a TBM-shaped query); investigators should treat output as candidate set, not verdict, until the validation report lifts the exploratory tag.
+
+### R11 — Mule Network Discovery
+
+**Pattern:** A *group* of low-volume accounts forming a dense subgraph with coordinated reciprocal flows. Distinguished from R5 (single-mule profiling) by group cohesion: the network is detected as a cluster, not as individual flagged entities.
+
+**Tool sequence:**
+1. `find_clusters(pattern_id="account_pattern", n_clusters=0, top_n=10, sample_size=5000)` — silhouette-based auto-`k` clustering (`n_clusters=0` searches `k=2..15`, picks highest-mean-silhouette via internal subsample). On populations larger than ~100K explicitly subsample to 5000 first to keep cold-call latency bounded. Mule networks present as low-volume clusters distinct from the bulk population
+2. For each candidate cluster: aggregate `contagion_score(member_key, anchor_pattern_id="account_pattern")` over members — high mean indicates group-level contagion (anomaly propagates symmetrically across the cluster, not radiating from one seed)
+3. For top candidates: `cross_pattern_profile(member_key, line_id)` per member — verify multi-pattern flagging (`account_pattern` + `account_pairs_pattern` etc. both flag the same set)
+
+**Score:** `cluster_size × mean_contagion_score × multi_pattern_hit_rate` (where `multi_pattern_hit_rate` is the fraction of cluster members flagged on ≥ 2 patterns).
+
+**Interpretation:** A mule network looks like a coordinated tight cluster of accounts whose flow signatures resemble each other, whose contagion scores are similar (no clear "ringleader" signature), and whose membership shows up across multiple anchor patterns. Single-pattern clusters or clusters with one dominant contagion-source are NOT mule networks — those are R5 (mule) or R8 (witness cohort) territory.
+
+**False positive guard:** small-business clusters (e.g. local service providers, franchised branches) share density signature without being laundering. Require ≥ 2 cluster members flagged on ≥ 2 patterns AND `mean_contagion_score` above the population median before escalating. Below that, treat as exploratory cohort, not a network.
+
+**Why unique vs other recipes:** R5 classifies one entity at a time (source / sink / mule); R8 expands a cohort *from a confirmed seed* via witness overlap. R11 discovers the network *without* a seed, via cluster density on `account_pattern` geometry — the entry point is the cluster itself, not a known suspect.
+
+**Status:** Exploratory — empirical lift TBD. Same caveat as R10.
+
 ## Investigation Memory
 
 Maintain three lists throughout the investigation session:
@@ -861,13 +913,37 @@ yet shown a measurable AUROC delta from these aggregations alone
 against ground-truth laundering labels. Prior on signal lift is
 correspondingly low until the upstream `find_motif_structuring` /
 `position_in_chain` predicates are validated on a labelled dataset
-where they discriminate above the population base rate.
+where they discriminate above the population base rate. See "Feature
+curation via stratified correlation gates" below for the gate
+machinery that closes this evidence gap on labelled spheres.
 
 **Anchor regimes supported:** chain anchor patterns auto-emitted via
 `chain_lines:` block. Membership lookup via the `chain_events` property
 column on the chain anchor line (comma-joined event_keys, populated at
 chain extraction time). External chain imports (user-loaded membership)
 are not supported.
+
+## Feature curation via stratified correlation gates
+
+Before relying on a chain or account feature in a SAR narrative or a triage rule, sanity-check whether the feature carries laundering signal independent of the obvious confounders (chain length, account transaction volume). The hypertopos benchmark/ harnesses surface a per-feature verdict on labelled spheres along three lenses, in increasing methodological strictness:
+
+1. **All-population correlation gate.** Welch t-test + Mann-Whitney U per feature against the laundering label across the whole pattern. Cheapest. Verdict: PASS / MARGINAL / FAIL. Limitation: confounded with length / volume — a feature that's just correlated with chain length will get a mechanical PASS because long chains have higher base-rate laundering exposure. Mark length-correlated PASSes as suspect by default.
+
+2. **Stratified correlation gate.** Bucket the population by the confounder (hop_count for chains, tx_out_count + tx_in_count for accounts) and re-run the gate within each bucket. Cross-bucket verdict:
+   - **ROBUST**: PASSes in every bucket AND Cohen d direction is consistent across passing buckets. Real signal independent of the confounder.
+   - **DIRECTION-INCONSISTENT**: PASSes everywhere but Cohen d sign flips across buckets. Statistical separation real, but interpretation depends on the confounder regime — different bucket, different mechanism.
+   - **LENGTH-MEDIATED / VOLUME-MEDIATED**: PASSes in some buckets, FAILs in others. Signal exists at one end of the confounder spectrum only.
+   - **NOISE**: FAIL or MARGINAL in every bucket. No real signal — the all-population PASS (if any) was an artefact.
+
+3. **Partial point-biserial correlation.** Across the full population, residualise the feature on the confounder via linear regression and compute the partial r against the laundering label. Significant partial r with non-trivial magnitude (>0.05 typically) is the strongest evidence of confounder-independent signal. Per-bucket ROBUST + low partial r means "consistently weak signal across strata" — real but small.
+
+**When to use which.** All-population gate is the right first-pass screen. Stratified gate is the bias-controlled follow-up — run it when an all-population PASS is on a feature that's correlated with the natural confounder. Partial r is the headline number to put in a SAR rationale when the question is "is this feature driving the alert independent of the entity's size."
+
+**Verdict interpretation in SAR / triage context.** A NOISE verdict is a hard signal that the feature shouldn't anchor a SAR rationale — even if `find_anomalies` flagged the entity high on this feature, the underlying separation from clean entities isn't real at population scale once confounders are controlled. A DIRECTION-INCONSISTENT verdict means the feature behaves differently in different regimes — investigators should match the entity's regime (short / long chain, low / high volume) to the per-bucket Cohen d sign before claiming directional rationale. ROBUST + high partial r is the cleanest evidence; lean on those features.
+
+**Empirical sparseness caveat.** The intersection (ROBUST per-bucket AND |partial r| > 0.05) is often small — typically 1–3 features per pattern on real-world spheres. When the intersection is empty or near-empty for the pattern in question, fall back to ROBUST-partial-r-only as second-tier evidence (volume-/length-mediated per-bucket, but confounder-residualised). Treat that fallback as "best available evidence given confounder shape" rather than confirmed signal — and note in the SAR rationale that the feature's per-bucket behaviour was mixed.
+
+**Heterogeneous label hypothesis.** When multiple features classify as DIRECTION-INCONSISTENT on the same population, the underlying issue may be that the laundering label aggregates several typologies — different rings behave differently, and direction-inconsistency reflects that heterogeneity rather than per-feature noise. Stratifying further by typology (when sub-labels are available) before per-feature analysis can resolve the inconsistency.
 
 ## Declarative structuring chain detection
 
