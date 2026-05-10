@@ -6,6 +6,37 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.6.7] — 2026-05-10
+
+### Added
+- `gds-monitor` — new "Dim-quality warnings" cheatsheet section covering the two silent build-time failure modes surfaced via `sphere_overview().dim_quality_warnings[]`: `dead_dim` (sigma_diag below 1e-10 — z-score undefined) and `sparse_dim` (median == 0 with p99 > 0 — gaussian assumption wrong). Documents the `{type, dim_label, reason, advice}` structure and triage rules per failure class: drop / fix data source for dead, switch to Bregman or split into is_active + value_when_active for sparse.
+
+### Changed
+- `gds-fraud-investigator` — SKILL.md split into reference files per skill best practice (auto-loaded SKILL.md should be small; deep cheatsheets / per-recipe detail load on demand). SKILL.md trimmed from 1082 lines to 457 lines (-58%); seven new reference files extracted to `references/`:
+  - `references/recipes.md` — full per-recipe detail (R1-R11): tool sequences, interpretation, false-positive guards, uniqueness rationale. SKILL.md keeps the recipe summary table + the input/capability matrix + a 1-line "Pattern" sentence per recipe.
+  - `references/declarative-motifs.md` — `find_motif_by_hops` patterns: declarative structuring chains (`amount_ratio_to_prev`), long-chain layering (`time_window_hours`), per-hop anomalous-intermediary filtering (`require_anomalous_entity`).
+  - `references/edge-aggregations.md` — account-level + chain-level recall via `edge_dim_aggregations:`; per-aggregate semantic, how to read on a suspect, anchor regime coverage.
+  - `references/correlation-gates.md` — feature curation via stratified correlation gates (three-lens approach: all-population, per-bucket, partial r) + wiring gate verdicts into `find_anomalies(dimension_weights={...})` runtime ranking.
+  - `references/advanced-workflows.md` — four canonical operational scenarios with full per-step Python templates: detect coordinated population-shift attack (`find_group_influence` reinforcing-factor test), AML hidden-influencer triage → SAR candidate workflow, cross-pattern lead-lag for AML rapid-escalation, edge-derived dimensions for AML detection (`edge_dimensions:` declaration with five build-time per-edge dim functions).
+  - `references/examples-and-troubleshooting.md` — three worked end-to-end examples (full AML screening, typology detection, false-positive elimination) + canonical troubleshooting tree (`passive_scan` not available, `extract_chains` empty / times out, source_count=1 collapse, `find_counterparties` hub explosion).
+  - `references/motif-detection.md` — closed motif vocabulary (`cycle_2`, `cycle_3`, `fan_out`, `fan_in`, `chain_k`, `structuring`, `split_recombine`, `bipartite_burst`) mapped to typology atoms, AML Phase 2 confirmation workflow, jurisdictional structuring thresholds (US CTR / UK STR / EU CTR / crypto), cold-call cost / warm-up order / scale threshold (>10M edges → seed-first pattern), `motif_potential` enrichment on `trace_root_cause`.
+
+  Each extraction leaves a 1-3 sentence summary in SKILL.md with a cross-link, so agents auto-loading the skill see the entry points and load the full reference on demand. No content removed; the reference files preserve the original prose. SKILL.md size now in line with sibling skills (gds-detective 440, gds-analyst 389) — pattern matches `gds-investigator` / `gds-sphere-designer` / other siblings which separate the auto-loaded entry from on-demand deep-dive material.
+
+### Added
+- `gds-fraud-investigator` — new "Recipe input + capability matrix" cheatsheet block immediately after the existing per-recipe summary table. Quick-reference table covering recipe × {input type, edge-table use, one-shot orchestrator, SAR narrative composer} for all 11 recipes (R1-R11). The matrix surfaces three structural patterns directly: (a) external-chain workflow applies only to R9 because R9 is the only recipe whose input is a chain; (b) the edge-free recipes are R5/R7/R9 and the rest either scan the edge table runtime (R1, R3, R4, R10) or read derived edge-features baked at build time (R2, R6, R8, R11); (c) only R9 has end-to-end orchestration (`investigate_chain`) and SAR narrative composer (`generate_sar_rationale`) today, with per-recipe `investigate_<recipe>` orchestrators and SAR templates as the natural extensions. Existing per-recipe table also gains R10 + R11 rows that were missing from the summary.
+
+### Added
+- `gds-fraud-investigator` — R9 per-chain shortcut path gains a "SAR narrative draft" step documenting the new `generate_sar_rationale` MCP tool. Closes the investigation→SAR pipeline: investigator gets a 3-5 paragraph starting draft from R9 evidence (no LLM call; pure template composition) instead of writing from a blank page after `investigate_chain` completes. Documents the `evidence` passthrough (cheap path for repeated narratives on the same chain), the `regulatory_template` hint passthrough (FinCEN SAR / EU AMLR Annex II / internal template names), and the `confidence` derivation (`high` requires `strong` strength AND all 5 R9 surfaces ok). Honesty discipline call-out: narrative uses "evidence indicates" / "the per-hop trace shows" — never "confirms" — and is a starting draft, not a final verdict.
+
+### Changed
+- `gds-fraud-investigator` — corrected the "Anchor regimes supported" note in the chain-coherent loop section. Previously read "External chain imports (user-loaded membership) are not supported" — wrong: external chains DO work as anchor lines, and the R9 loop primitives operate on them when the `chain_keys` convention column is populated. The note now describes both BFS-extracted (`chain_lines:`) and externally-ingested chains, with a cross-link to the new `packages/hypertopos-py/docs/external-chains-as-anchor-line.md` cookbook. Recipe R9 also gains an "External chain source" paragraph documenting the workflow for SAR typology engines / ERP / EHR / customer-journey ingestion.
+
+### Added
+- `gds-fraud-investigator` — "Wiring gate verdicts into runtime ranking" cheatsheet block in the Feature curation via stratified correlation gates section. Documents how to translate gate verdicts (NOISE / DIRECTION-INCONSISTENT / VOLUME-MEDIATED / ROBUST) into the new `find_anomalies(dimension_weights={...})` parameter so the Theme E findings shape the ranked output an investigator actually sees, not just the SAR rationale narrative.
+- `gds-fraud-investigator` — R9 loop gains an explicit triage step (step 0) using the new `chain_investigation_summary` MCP tool. Documents triage rules: `coherent_run_rate < 0.005` AND low cross-pattern jaccard → skip the deep loop, fall back to chain-shape anomalies; `coherent_run_rate > 0.05` → proceed; `recommended_min_hops > 3` → use the recommended threshold in step 1 to focus on the strongest cases.
+- `gds-fraud-investigator` — R9 loop gains a per-chain shortcut block documenting the new `investigate_chain` one-shot orchestrator MCP tool. After step 1 surfaces a target chain_id, `investigate_chain` runs steps 2-5 (trace + typology + shape-anomaly lookup + extension forward + extension backward) in a single call and returns the aggregated report with a SAR-ready summary block (`investigation_strength`, `recommended_action`, `rationale`). The per-step granular tools remain available when finer per-step control is needed.
+
 ## [0.6.6] — 2026-05-09
 
 ### Removed

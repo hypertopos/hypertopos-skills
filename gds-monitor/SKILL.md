@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Requires hypertopos MCP server. Designed for Claude Code and compatible agents.
 metadata:
   author: Karol Kędzia
-  version: 0.6.6
+  version: 0.6.7
   mcp-server: hypertopos
 ---
 
@@ -208,6 +208,24 @@ The full per-percentile sweep lives behind `theta_sensitivity(pattern_id)`
 — use that when the summary flags a non-trivial structure (cliffs > 0
 or stable_band_length < 6) and you need the exact ratios to decide on
 a safe recalibration move.
+
+---
+
+## Dim-quality warnings
+
+`sphere_overview()` carries an optional `dim_quality_warnings[]` block per pattern surfacing two silent build-time failure modes that break z-score / `delta_norm` semantics. Both classes were previously invisible at agent runtime — the dim sat in the delta vector contributing nothing or contributing wrong signal, and the investigator had no way to know without scrolling the calibration log.
+
+| `type` | Trigger | Why it breaks `delta_norm` |
+|---|---|---|
+| `dead_dim` | `sigma_diag[i] < 1e-10` (zero variance across population) | z-score `(x - mu) / sigma` is undefined / explodes; the dim contributes nothing meaningful and silently dilutes other dims' signal |
+| `sparse_dim` | `dim_percentiles[d]['p50'] == 0` AND `p99 > 0` (mostly-zero with rare nonzero) | gaussian z-score assumption is wrong — empirical distribution is point-mass-at-zero plus a tail; Bregman divergence with poisson / bernoulli kind tag is the correct distance |
+
+Each warning carries `dim_label`, `reason` (the offending value), and `advice` (concrete remediation). Triage rules:
+
+- **Any `dead_dim` warning**: drop the dim from the pattern, OR investigate the data source for missing values / constant column. Builder-time issue — won't fix itself on rebuild without a YAML edit.
+- **`sparse_dim` warning on a binary-like signal** (e.g. structuring flag, fraud label): switch to Bregman with `kind: bernoulli`. The warning is not a bug — it's the gaussian assumption being wrong for the data shape.
+- **`sparse_dim` warning on a sparse counter** (e.g. tx-count where most accounts have zero): split into `is_active` (bernoulli) + `tx_count_when_active` (poisson) dims. The single-dim representation conflates two regimes.
+- **No `dim_quality_warnings` block**: pattern passed both checks. Don't infer "perfectly healthy" — the warnings only catch the two specific silent-failure modes; other quality issues (correlated dims, stale data, drifted calibration) need separate diagnostics.
 
 ---
 
