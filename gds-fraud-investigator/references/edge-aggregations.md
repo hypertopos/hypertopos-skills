@@ -37,6 +37,7 @@ This emits only three aggregated columns (`pair_edge_count_count_above_threshold
 - `find_motif_structuring_mean` materially > 0 → meaningful share of the account's transactions sit inside a structuring motif chain
 - `position_in_chain_max` high → account sits near the deep end of multi-hop chains (downstream sink in long layering)
 - `time_since_pair_last_edge_mean` low + `pair_edge_count_max` high → bursty re-activation of dormant pair edges (classic flash-burst signature on the account level)
+- `edge_curvature_frc_mean` highly negative → account sits on edges with low triangle support and high endpoint degree (lookalike-hub topology). Combinatorial Forman-Ricci curvature of the underlying undirected transaction graph; opt-in via `edge_dimensions: [edge_curvature_frc]`. Useful as a composition input for the population-relative anomaly stack — high-magnitude negative FRC concentrates around hub mules; near-zero FRC around tight rings (e.g. K4 sub-cliques score `0`); positive FRC is rare and indicates over-clustered local structure.
 
 These lift account-level recall on workflows where the per-tx geometry signal is faint (transaction polygons calibrate against a multi-million-row population so a single anomalous tx is hard to surface alone) but accumulates clearly at the entity level (10 anomalous transactions out of 30 hop into a single account's `find_motif_structuring_mean`).
 

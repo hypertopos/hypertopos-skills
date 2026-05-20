@@ -44,6 +44,23 @@ patterns:
       amount_col: amount        # optional
 ```
 
+**Edge dimensions** — opt-in build-time per-edge dims that feed the polygon shape and the per-edge predicate filter. Six available:
+
+```yaml
+patterns:
+  tx_pattern:
+    edge_dimensions:
+      - pair_edge_count            # Poisson — count of edges in this (from, to) pair
+      - position_in_chain:         # Poisson — ordinal position in a detected chain
+          min_position: 5
+      - time_since_pair_last_edge  # Gaussian — seconds since pair last had an edge
+      - pair_amount_zscore         # Gaussian — per-pair amount z-score (LOW_VAR pairs only)
+      - find_motif_structuring     # Bernoulli — 1 if edge sits in a structuring motif
+      - edge_curvature_frc         # Gaussian — combinatorial Forman-Ricci curvature
+```
+
+`edge_curvature_frc` is the only purely structural dim — it's `4 − deg(u) − deg(v) + #triangles(u, v)` on the undirected projection of the multigraph (presence not multiplicity; canonical for both directions). Negative values mark sparse-hub topology (lookalike mule signature); near-zero marks tight rings (K-clique sub-structures); positive marks over-clustered local neighbourhoods. Composes through the existing population-relative anomaly stack via aggregated `*_mean` / `*_max` on the anchor pattern.
+
 **Mahalanobis distance** — for correlated dimensions:
 ```yaml
 patterns:

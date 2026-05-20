@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Requires hypertopos MCP server. Designed for Claude Code and compatible agents.
 metadata:
   author: Karol Kędzia
-  version: 0.6.7
+  version: 0.7.0
   mcp-server: hypertopos
 ---
 
@@ -219,13 +219,19 @@ a safe recalibration move.
 |---|---|---|
 | `dead_dim` | `sigma_diag[i] < 1e-10` (zero variance across population) | z-score `(x - mu) / sigma` is undefined / explodes; the dim contributes nothing meaningful and silently dilutes other dims' signal |
 | `sparse_dim` | `dim_percentiles[d]['p50'] == 0` AND `p99 > 0` (mostly-zero with rare nonzero) | gaussian z-score assumption is wrong — empirical distribution is point-mass-at-zero plus a tail; Bregman divergence with poisson / bernoulli kind tag is the correct distance |
+| `dominant_dim_mass` | pattern-level: one dim's share of `((p99 − μ_d) / σ_d)²` across dims ≥ 0.70 | pattern's `delta_norm` ranking is effectively single-dim; the sphere is a one-dim detector on this pattern, multi-dim composition adds little |
+| `negative_space` | per-dim: `dim_percentiles[d]['p50'] == 0` AND `dimension_kinds[i] == "gaussian"` | gaussian z-score is wrong — empirical distribution is point-mass-at-zero, not centered on the mode; gaussian semantics treat zero as the typical value when it is actually the absence value |
 
-Each warning carries `dim_label`, `reason` (the offending value), and `advice` (concrete remediation). Triage rules:
+Each warning carries `dim_label`, `reason` (the offending value), and `advice` (concrete remediation); the `dominant_dim_mass` auditor additionally carries `evidence_value` (the firing share) + `threshold` (the cutoff) so the agent can rank patterns by severity. Triage rules:
+
+**New pattern-level calibration auditors** — `dominant_dim_mass` and `negative_space` are sphere-design-quality signals; if they fire, raise a calibration ticket rather than chasing the entities flagged by `find_anomalies` on the affected pattern — those entities are likely noise.
 
 - **Any `dead_dim` warning**: drop the dim from the pattern, OR investigate the data source for missing values / constant column. Builder-time issue — won't fix itself on rebuild without a YAML edit.
 - **`sparse_dim` warning on a binary-like signal** (e.g. structuring flag, fraud label): switch to Bregman with `kind: bernoulli`. The warning is not a bug — it's the gaussian assumption being wrong for the data shape.
 - **`sparse_dim` warning on a sparse counter** (e.g. tx-count where most accounts have zero): split into `is_active` (bernoulli) + `tx_count_when_active` (poisson) dims. The single-dim representation conflates two regimes.
-- **No `dim_quality_warnings` block**: pattern passed both checks. Don't infer "perfectly healthy" — the warnings only catch the two specific silent-failure modes; other quality issues (correlated dims, stale data, drifted calibration) need separate diagnostics.
+- **`dominant_dim_mass` warning**: cross-check per-polygon `reliability_flags.single_dim_driven` incidence on `find_anomalies` top-N for the same pattern — pattern-level dominance ⟹ high per-polygon incidence agreement. Raise a calibration ticket; consider splitting the dominant dim into its own pattern or re-weighting via `dimension_weights` so the other dims actually contribute.
+- **`negative_space` warning**: re-declare the dim with `kind='bernoulli'` (presence/absence) or `kind='poisson'` (count), or split into a binary `is_active` dim plus a continuous `value_when_active` dim. Same remediation family as `sparse_dim` but the trigger is gaussian-declared, not empirical-distribution-shaped.
+- **No `dim_quality_warnings` block**: pattern passed all four checks. Don't infer "perfectly healthy" — the warnings only catch the four specific silent-failure modes; other quality issues (correlated dims, stale data, drifted calibration) need separate diagnostics.
 
 ---
 

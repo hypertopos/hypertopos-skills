@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Requires hypertopos MCP server. Designed for Claude Code and compatible agents.
 metadata:
   author: Karol Kędzia
-  version: 0.6.0
+  version: 0.7.0
   mcp-server: hypertopos
 ---
 
@@ -47,6 +47,10 @@ If `edge_stats` returns `null`, the pattern has no edge table — skip all
 edge-dependent tools (`find_counterparties`, `find_geometric_path`,
 `discover_chains`, `extract_chains`, `find_chains_for_entity`) and note
 "no edge data available" in the report.
+
+### Sphere health gates
+
+**Pattern-level auditors in `dim_quality_warnings`** — beyond `dead_dim` and `sparse_dim` (per-dim signals), `sphere_overview` now also surfaces `dominant_dim_mass` (pattern-level: one dim accounts for ≥70% of tail variance — sphere is effectively a one-dim detector on this pattern) and `negative_space` (gaussian-declared dims that empirically sit at zero — the gaussian z-score is wrong for them). When `dominant_dim_mass` fires, cross-check by inspecting `reliability_flags.single_dim_driven` incidence on `find_anomalies` top-N for that pattern — pattern-level dominance ⟹ high per-polygon incidence agreement. When `negative_space` fires, treat the affected dim's contribution to `delta_norm` as suspect and prefer `kind='bernoulli'` / `kind='poisson'` re-declaration over per-entity drill-down.
 
 ---
 
@@ -91,6 +95,19 @@ composite_risk_batch(missed_keys, line_id)
 ```
 
 Threshold: `combined_p < 0.10` (relaxed vs typical 0.05).
+
+**Lower-level p-value composition** (when detectors outside `cross_pattern_profile` matter
+— external rules engines, typology scores, chain-coherent run p-values):
+
+```
+combine_anomaly_pvalues([(pattern_id, p_value), ...], method="hmp")
+-> Wilson HMP combination (default; robust under positive dependence)
+   or method="fisher" for classical independence.
+-> Returns combined_p + per-pattern reliability_flags pass-through.
+classify_detector_consensus([(pattern_id, p_value), ...])
+-> Labels the set: unanimous_anomaly / majority_anomaly / split / unanimous_normal.
+   "split" verdict is itself a signal — entity at the boundary of two typologies.
+```
 
 ## Investigating without ground truth
 
@@ -295,7 +312,41 @@ When `motif_type` is `cycle_3`, the block includes `ring: [seed, B, C]`. When `f
 
 `explain_anomaly` tells you WHICH dimension is anomalous, with per-dim
 Bregman contributions when dimension kind tags are available. That is an
-observation, not a finding. The root cause chain goes deeper:
+observation, not a finding.
+
+Before opening a case on any anomaly, check `reliability_flags` on the
+returned polygon (surfaced by `find_anomalies`, `explain_anomaly`,
+`composite_risk`, `combine_anomaly_pvalues`, and `investigate_entity`).
+Two flags fire independently:
+
+- `single_dim_driven=true` — one dim contributes >70 % of total anomaly
+  attribution. Likely a data-quality artefact (saturated counter,
+  outlier on one property) rather than a multi-dim fraud signal. Sanity-
+  check the `dominant_dim` value before escalating.
+- `low_confidence_bucket=true` — bootstrap-derived `anomaly_confidence`
+  is below 0.5. The anomaly flag is fragile to population resampling —
+  the entity is on the borderline. Treat as a soft hit; corroborate
+  with one more detector (a chain pattern, a witness-cohort overlap, a
+  counterparty signal) before opening a case.
+
+`reliability_flags.dominant_dim` always agrees with the top entry of
+`explain_anomaly.top_dimensions` for the same polygon — both surfaces
+route through the same per-dim contribution primitive. If they disagree
+on a real call, that's a bug to report.
+
+**Multi-hypothesis investigation**: when `explain_anomaly` shows
+`reliability_flags.single_dim_driven=True`, call
+`find_diverse_explanations(primary_key, pattern_id, n_hypotheses=3)` to
+surface alternative hypotheses beyond the dominant dim. Top-anomalous
+entities often degrade to 1-2 hypotheses with
+`degraded_reason="insufficient_diverse_mass"` — that's correct semantic,
+signals the anomaly is genuinely single-dim. When the result returns
+2+ hypotheses with `diversity_score > 0.8`, each is an independent
+investigation path worth probing.
+
+**Compliance + anomaly cross-check** — `find_conformance_violations(pattern_id)` returns entities that broke declarative rules in `sphere.yaml`. Independent from `delta_norm` anomaly flags; compose via `investigate_entity` on top violators to test "does the rule break also reflect a geometric anomaly?" If yes — confirmed compliance issue with structural backing. If no — rule break alone, may indicate policy gap or genuine compliance violation without geometric signature.
+
+The root cause chain goes deeper:
 
 ```
 explain_anomaly -> dominant dimension identified
@@ -311,6 +362,33 @@ find_geometric_path(from_key, to_key, pattern_id) -> HOW are two anomalous entit
   scoring="geometric" (default) ranks by delta coherence; "anomaly" ranks by anomaly density along path.
 find_novel_entities(pattern_id) -> WHO deviates most from neighborhood expectation?
   High novelty_score = entity doesn't behave like its neighbors. Requires edge table.
+find_graph_geometry_tension(primary_key, pattern_id, line_id) -> behavioural-vs-edge 2x2 cross-tab.
+  hidden_cluster = similar-but-disconnected (lookalike cohort never seen together);
+  suspicious_links = connected-but-distant (out-of-peer-group). On AML-class data the signal
+  sits in suspicious-links count; hidden_cluster saturates at k_geometric.
+find_topological_anomalies(pattern_id) -> WHO sits in a local H_1 cycle in delta space.
+  Ranks by raw h1_max_persistence (not the auxiliary normalised topo_score). Empirical lift
+  is mid-rank — composition input for HMP / passive_scan, NOT a top-N drill-down replacement.
+simulate_edge_removal(primary_key, pattern_id, line_id, top_n=5) -> WHICH edges made this entity anomalous.
+  Per-edge counterfactual: for each candidate edge in the entity's adjacency, simulate removal and
+  rank by drop in delta_norm. Returns (edge_id, drop_pct, dominant_dim_label) per edge. v0 covers
+  relations + prop_columns dim classes; edge_dim_aggregations deferred. Investigator-drilldown only,
+  not a population scoring axis.
+simulate_counterparty_removal(primary_key, pattern_id, line_id, top_n=5) -> WHICH counterparty
+  made this entity anomalous. Counterparty-level counterfactual: aggregates all edges to one
+  counterparty per call; ranks counterparties by aggregate delta_norm drop. SAR-friendlier than
+  per-edge ("removing transactions with ACC-X drops delta_norm by 38 %") when the edge ranking
+  is too granular.
+select_minimal_joint_edge_removal(primary_key, pattern_id, line_id, target="flip", k=8)
+  -> SMALLEST edge set that flips the anomaly verdict. Greedy edge-set search; returns
+  edge_ids[] + delta_norm_after + flipped. The minimal joint set is the literal "evidence
+  of anomaly" — what you cite in the SAR narrative as the cause.
+simulate_dimension_change(primary_key, pattern_id, line_id, set_dimension, top_n=5) -> would this
+  entity still be anomalous if dim X were at value V. What-if dimension override: override one or
+  more raw shape-vector dims, recompute delta_norm under the pattern's calibration, and report
+  delta_norm_before/after, the anomaly-flag flip, and the new top witness dims. Companion to
+  simulate_edge_removal for non-edge dimensions. set_dimension is {dim_label: new_value} in raw
+  shape-vector units — call explain_anomaly first to pick dim_labels and read current values.
 find_witness_cohort(key, pattern_id) -> peers with similar anomaly profile
 ```
 
@@ -373,6 +451,17 @@ extend_chain(chain_id, ..., direction="forward"|"backward")
   Suggest extension entities at the boundary of the chain's anomalous run
   using the chain reverse index. Anomalous candidates are "where to look
   next" investigation targets.
+chain_witness_intersection(chain_id, chain_pattern, member_pattern,
+                           min_jaccard=0.5, top_k_witness=5)
+  Intersect the top witness dims of the chain's members.
+  coordinated=True (mean pairwise Jaccard >= min_jaccard) means every
+  member is anomalous for the same structural reason — a single
+  geometric diagnosis for the chain.
+chain_drift_trajectory(chain_id, chain_pattern, member_pattern, n_windows=4)
+  Per-member regime (normalizing / deteriorating / neutral) over
+  time-bucketed delta_norm, plus a chain-level rollup
+  (mixed when members disagree) + numeric drift score. Spots chains
+  jointly drifting toward anomaly before any single hop crosses θ.
 find_chains_for_entity(entity_key, chain_pattern_id)
   Reverse lookup — list every chain a given entity participates in
   (deduplicated; cyclic / self-revisiting chains surface once). The

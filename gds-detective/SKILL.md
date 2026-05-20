@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Requires hypertopos MCP server. Designed for Claude Code and compatible agents.
 metadata:
   author: Karol Kędzia
-  version: 0.5.0
+  version: 0.7.0
   mcp-server: hypertopos
 ---
 
@@ -29,6 +29,70 @@ For concrete output examples of each recipe, see [references/examples.md](refere
 Detection recipes that start with `find_anomalies` benefit from two parameters: `fdr_alpha` applies Benjamini-Hochberg FDR control so that the candidate list has a bounded false discovery rate before expensive downstream recipe steps run, and `select="diverse"` uses submodular facility location to return candidates spanning different anomaly signatures rather than redundant near-duplicates. Set `fdr_alpha=0.05` when the recipe feeds into manual verification or cross-pattern confirmation; use `select="diverse"` when the goal is to discover the range of anomaly types present, not just the most extreme instances. Both parameters also work on `attract_boundary`, `find_hubs`, and `find_drifting_entities`.
 
 **Storey adaptive FDR** — `fdr_method="storey"` with `p_value_method="chi2"` expands the candidate list by 10–15% on patterns whose delta distribution has a real null mass (moderate super-anomaly regime). Both params must be set together; Storey without chi2 p-values is a no-op. On compressed or saturated distributions the effect vanishes — detective recipes should default to `fdr_method="bh"` and only opt into Storey when the pattern's `median(delta_norm) ≈ sqrt(df)` with a clean tail.
+
+**FDR axis selection** — `fdr_axis` selects what FDR is controlled over. The default `"entity"` controls the false-discovery rate over per-entity anomaly tests on `||delta||²` (one p-value per entity, df = dimensionality) — use it when the question is "which entities are jointly anomalous across the whole shape vector". The `"per_dim"` axis runs an independent BH/Storey correction per dimension on chi²(1) univariate p-values for each cell of the delta matrix and keeps an entity iff *any* dim's q-value clears alpha — use it when the question is "which dimension is anomalous for this entity", because a single dim driving many discoveries no longer inflates the threshold for unrelated dims (so a rare-but-real single-dim signal that would be lost in a joint norm test surfaces). The `"both"` axis requires the entity to survive *both* tests — strictest, lowest false-positive rate, smallest candidate list. Per-dim mode attaches `q_values_per_dim` (one q per dim), `min_q_per_dim` (the smallest), and `dominant_q_dim_idx` (the index of that smallest dim) to every returned polygon — investigator drilldown can read which dim drove each survivor straight from the result.
+
+**Ranking by per-dim significance** — `rank_by="min_q_per_dim"` re-ranks the post-FDR survivors by smallest per-dim q-value ascending (most extreme single-dim signal first), instead of the default `rank_by="delta_norm"` which sorts by joint norm descending. Use when an entity with one knife-edge dimension matters more to the investigation than an entity with diffuse moderate elevation across many dims. Requires `fdr_alpha` set and `fdr_axis ∈ {"per_dim", "both"}` (no q-values otherwise); incompatible with `select="diverse"` (which has its own ordering). Note: chi²(1) is direction-agnostic — both extreme-positive and extreme-negative deviations produce small p-values — so on patterns where some dims are *anti-signal* (high `|delta|` correlated with non-target class, e.g. legitimate-traffic outliers in fraud detection), per-dim FDR will flag both wings of those dims. Mitigation when labels exist: use `engine.dim_audit.compute_per_dim_label_auroc` to identify anti-signal dims and silence them via `dimension_weights={dim: 0.0}` before ranking.
+
+## Multi-resolution FDR: spatial × temporal hierarchies
+
+When the pattern declares `fdr_hierarchy:` (spatial) and/or `fdr_temporal_hierarchy:` (temporal) in sphere.yaml, `find_anomalies` accepts two extra params:
+
+- `fdr_resolution: "<spatial_level_name>"` — gates returned anomalies to entities whose cell at this level cleared per-level BH/Storey FDR at `fdr_alpha`.
+- `fdr_temporal_resolution: "<temporal_level_name>"` — same, for the temporal axis.
+
+Both can be combined: intersection-FDR — an entity survives iff its cell cleared every named level on BOTH axes.
+
+### Cell test stat
+
+Per-cell evidence is a Fisher exact 2×2 upper-tail p-value comparing the cell's anomaly rate against the rest of the population. Reads `is_anomaly` boolean column on geometry. Non-parametric, exact, copes with low-count cells (cells with few entities behave correctly — a z-test would break here).
+
+### Per-level Tippett aggregation
+
+A coarse-level cell's evidence is the *minimum* p-value among its child cells (Tippett combination). This is the standard hierarchical-test composition rule and is conservative: coarse levels reject only when at least one child level fires very strongly. Per-level BH/Storey then applies to the coarse-cell p-value set.
+
+### When to use
+
+- `fdr_resolution` — population-level anomaly rate jumped in a sub-group (per-bank, per-region, per-community). Surfaces "this bank is suspicious" rather than "these accounts are suspicious".
+- `fdr_temporal_resolution` — epoch-level shifts the entity-axis test cannot see (a time window has elevated anomaly density even though individual entities pass entity-FDR).
+- Both — strictest filter, useful for finding the cells where risk concentrates at the latest tag.
+
+### What this filter does and does NOT do
+
+Multi-resolution FDR is a *per-cell* filter on the geographic / temporal axis. It localises anomalies to a hot-spot region and provides `cell_q_spatial` / `cell_q_temporal` / `cell_path` as pre-computed statistical evidence for SAR rationale. It does NOT tighten the entity-level ranking inside surviving cells. Survivor count and per-K precision depend on how the cells partition the population, not directly on `alpha`.
+
+Two failure modes to watch for:
+- **Single-cell levels collapse to no contrast.** A hierarchy level that resolves to one unique value across the whole sphere has p=1.0 by construction (single cell == whole population), so it rejects nothing. Check `temporal_bucket` granularity against the data's actual time range: a 90-day bucket on a 50-day sphere is one cell.
+- **Intersection returns zero survivors when one axis is degenerate.** Drop to single-axis mode (`fdr_resolution` only, or `fdr_temporal_resolution` only) before raising `alpha`.
+
+### Entity-axis FDR auto-upgrades when `fdr_resolution` is set
+
+When `fdr_resolution` or `fdr_temporal_resolution` is set on the entity axis, the navigator silently switches `p_value_method` from `"rank"` to `"chi2"` and `fdr_method` from `"bh"` to `"storey"` — the documented defaults are degenerate in combination with cell-level gating (rank-based p-values are uniform, BH rejects nothing, entity-level FDR collapses to a no-op and survivors order by `delta_norm` alone). The upgrade restores actionable ranking inside surviving cells. Explicit non-default values pass through unchanged; `fdr_axis="per_dim"` / `"both"` use `chi²(1)` per-dim regardless of `p_value_method`, so no upgrade happens there.
+
+The user-visible surface is therefore: setting `fdr_resolution=<level>` is enough to get both the cell-level gate AND the workload-correct entity ranking. No manual combo needed.
+
+### Anti-signal direction
+
+Like `fdr_axis="per_dim"`, this surface is direction-agnostic: an anomaly-rate DROP in a cell will not flag (upper-tail test), but an anomaly-rate SPIKE will. This is the intended direction for fraud / outlier investigation.
+
+### Example invocation
+
+```python
+# Spatial gate — entity-axis FDR auto-upgrades to chi2+Storey under
+# the hood when fdr_resolution is set
+find_anomalies(pattern_id="account_pattern", top_n=20, fdr_alpha=0.05,
+               fdr_resolution="bank")
+
+# Intersection — both axes named; same auto-upgrade applies. Only
+# meaningful when both hierarchies are non-degenerate.
+find_anomalies(pattern_id="account_pattern", top_n=20, fdr_alpha=0.05,
+               fdr_resolution="bank", fdr_temporal_resolution="quarter")
+
+# Power-user override — pass explicit values to bypass the auto-upgrade
+find_anomalies(pattern_id="account_pattern", top_n=20, fdr_alpha=0.05,
+               fdr_resolution="bank",
+               p_value_method="chi2", fdr_method="bh")
+```
 
 ---
 
@@ -130,7 +194,7 @@ to compare event counts across time windows. Faster than `dive_solid` for
 initial burst detection — `dive_solid` is entity-level temporal history while
 windowed aggregate gives per-entity counts across the full population in one call.
 
-If edge table available (`edge_stats` returns `has_edge_table: true`), `degree_velocity(key, pattern_id)` corroborates burst timing — accelerating degree alongside event spike = strong behavioral change.
+If edge table available (`edge_stats` returns `has_edge_table: true`), `degree_velocity(key, pattern_id)` corroborates burst timing — accelerating degree alongside event spike = strong behavioral change. `find_graph_geometry_tension(key, anchor_pattern, line_id=event_pattern)` cross-tabs behavioural k-NN against graph adjacency: high `n_suspicious_total` (out-of-peer-group counterparties) corroborates burst — entity transacting with parties outside its behavioural cohort is a fraud-typical signature on AML-class data.
 
 ## Neighbor contamination
 
@@ -266,8 +330,26 @@ Check related composite patterns:
 Many anomalous composites from one entity = systematic issue.
 
 composite_risk(key, line_id)
--> Fisher's method across independent patterns.
+-> Wilson harmonic-mean p-value (HMP) across patterns —
+   robust under positive dependence between p-values
+   (the regime where multiple patterns fire on the same entity).
 -> combined_p < 0.05 = significant even if no single pattern flags it.
+
+combine_anomaly_pvalues([(pattern_id, p), ...], method="hmp")
+-> Lower-level composition primitive. Pass arbitrary (pattern_id, p_value) pairs —
+   works on detectors outside cross_pattern_profile (e.g. an external rules engine
+   p-value, a typology recipe score converted to a p, a chain-coherent run score).
+-> method="hmp" (default; robust under positive dependence) or "fisher"
+   (classical independence assumption).
+-> Returns combined p + per-pattern reliability_flags pass-through.
+
+classify_detector_consensus([(pattern_id, p), ...])
+-> Labels the set of detector p-values as one of: unanimous_anomaly /
+   majority_anomaly / split / unanimous_normal. Use as a triage filter
+   when an entity has 4+ detectors and you need an at-a-glance verdict
+   before drilling. Disagreement among detectors ("split") is itself
+   a signal — the entity may sit at the boundary of two different
+   anomaly typologies.
 ```
 
 ## passive_scan for confirmation

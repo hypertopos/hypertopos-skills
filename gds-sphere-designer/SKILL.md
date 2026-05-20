@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Requires hypertopos CLI (pip install hypertopos). No live MCP session needed for design phases.
 metadata:
   author: Karol Kedzia
-  version: 0.4.1
+  version: 0.7.0
   mcp-server: hypertopos
 ---
 
@@ -321,6 +321,56 @@ When to use: entity has numeric attributes (balance, age, rating) or spatial
 coordinates that should influence anomaly detection. Without these blocks, the
 shape vector only captures relational structure (who is connected to whom).
 
+### Declarative compliance rules (`conformance_rules:`)
+
+Attach human-authored rules to a pattern in `sphere.yaml` so the builder
+materializes a per-pattern violations table at build time. Independent
+from `delta_norm` anomaly flags — an entity can be one, the other, or
+both. Query the result via `find_conformance_violations(pattern_id,
+rule_id, severity_min, top_n)` at runtime. AML adoption surface for
+SAR-narrative composition: cite a broken rule by `rule_id`, attach
+geometric explanation as supporting evidence.
+
+```yaml
+patterns:
+  account_pattern:
+    type: anchor
+    entity_line: accounts
+    conformance_rules:
+      - rule_id: high_risk_kyc_missing
+        severity: high
+        description: "High-risk client without KYC complete"
+        violates_when:
+          op: and
+          terms:
+            - op: "=="
+              prop: risk_band
+              value: high
+            - op: "!="
+              prop: kyc_status
+              value: complete
+      - rule_id: cross_border_no_sanctions_check
+        severity: critical
+        violates_when:
+          op: and
+          terms:
+            - op: "=="
+              prop: cross_border_flag
+              value: true
+            - op: "in"
+              prop: sanctions_check_status
+              value: ["not_run", "expired"]
+```
+
+Predicate AST language: logical `and` / `or` / `not` over comparison
+leaves `==` / `!=` / `<` / `<=` / `>` / `>=` / `in`. `prop` resolves to
+a column on the pattern's points table. Severity is one of `low` /
+`medium` / `high` / `critical`. Builder compiles each predicate to a
+PyArrow `compute.Expression` (no `eval()`), evaluates row-wise, and
+persists `(primary_key, rule_id, severity)` triples to
+`_gds_meta/conformance/violations/{pattern_id}/v={N}.lance` alongside
+`rule_set_hash` (rule changes invalidate the sidecar on next rebuild).
+
 ### Edge table design
 
 The edge table stores per-event from/to relationships, enabling runtime graph
@@ -584,12 +634,15 @@ Effect is marginal when the population is homogeneous.
 
 ### Composite scoring
 
-`composite_risk` (Fisher's method) combines p-values from independent patterns.
-`passive_scan` screens the full population.
+`composite_risk` combines p-values across patterns via the Wilson harmonic-mean
+p-value (HMP) — robust under positive dependence between p-values, which is
+exactly the regime where patterns derived from the same event line share
+derived dimensions and fire together on the same entity. `passive_scan` screens
+the full population.
 
 - **When it helps:** patterns capture genuinely independent signals. A default may be normal in behavior but anomalous in stress.
 - **Cross-line bridging:** `composite_risk` and `passive_scan` auto-bridge across sibling lines (same `source` in sphere.yaml).
-- **When it doesn't help:** patterns share dims or entity line. Adding composite over correlated patterns inflates false positives.
+- **When it doesn't help:** patterns share dims AND entity line. Even with HMP's dependence robustness, adding composite over near-identical patterns adds no orthogonal information.
 
 **Rule:** test single-pattern recall first. If <95% and you have independent
 patterns, add composite_risk. If already >95%, composite adds marginal value.
@@ -666,7 +719,7 @@ triangulation -- confirm via a different pattern where only one source contribut
 
 Unsupervised anomaly detection has a hard ceiling -- entities that are
 geometrically normal but labeled "bad" for external reasons cannot be caught
-by any individual pattern. Cross-line Fisher composite can recover a subset
+by any individual pattern. Cross-line HMP composite can recover a subset
 (borderline in 2+ patterns), but genuine quiet outliers remain undetectable.
 This is a data completeness problem, not a sphere design problem.
 

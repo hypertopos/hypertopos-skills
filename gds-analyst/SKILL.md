@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Requires hypertopos MCP server. Designed for Claude Code and compatible agents.
 metadata:
   author: Karol Kędzia
-  version: 0.2.2
+  version: 0.7.0
   mcp-server: hypertopos
 ---
 
@@ -72,18 +72,24 @@ full mapping. The most common:
 
 | Hint category | Primary scan | Secondary |
 |---|---|---|
-| Cross-pattern discrepancy | `passive_scan(threshold=1)` + `cross_pattern_profile` | `composite_risk` for borderline |
+| Cross-pattern discrepancy | `passive_scan(threshold=1)` + `cross_pattern_profile` | `composite_risk` (Wilson harmonic-mean p, robust under positive dependence) for borderline |
+| Detector composition / multi-source p-values | `combine_anomaly_pvalues([(pattern_id, p), ...])` | `classify_detector_consensus` for agreement/dissent labeling |
 | Geometric neighborhood | `detect_neighbor_contamination` (inverted search) | `find_similar_entities` + `check_anomaly_batch` fallback |
 | Temporal trajectory | `detect_trajectory_anomaly` (full temporal scan) | `dive_solid` + `find_drifting_similar` fallback |
 | Population segment shift | `find_regime_changes` → segment `property_filters` | `contrast_populations` |
 | Event anomaly rate | `aggregate(geometry_filters=is_anomaly)` + total `aggregate` | `sphere_overview(detail="full")` for alerts |
 | Composite subgroup | `aggregate_anomalies` + `find_anomalies(rank_by_property=avg_dim)` | dual ranking |
+| Topological / cycle anomalies | `find_topological_anomalies(pattern, top_n=20, k_neighbors=100)` — local H_1 cycle persistence | composition input for HMP / `passive_scan`, NOT a top-N drill-down replacement |
+| Graph-vs-behaviour tension | `find_graph_geometry_tension(key, anchor, line_id=event_pattern)` — behavioural k-NN × graph adjacency cross-tab | `n_suspicious_total` (out-of-peer-group counterparties) carries the discriminative signal |
+| Compliance rule break | `find_conformance_violations(pattern_id, severity_min="medium")` — declarative rules in `sphere.yaml` | independent from `delta_norm`; compose via `investigate_entity` on top violators |
 | Physical impossibility | `rank_by_property` on speed/distance/duration dims | Physical bound validation in gds-detective |
 | Unregistered entity / ghost vendor | `get_line_profile` on ID dims → cross-ref domain | Unregistered entity check in gds-detective |
 
 Allocate **70% of budget to matched scans**, 30% to exploration and validation.
 
 Every hint requires a finding in the report — even if the finding is "not detected."
+
+**FDR control on every scan that feeds downstream work.** Set `fdr_alpha=0.05` on `find_anomalies`, `attract_boundary`, `find_hubs`, `find_drifting_entities` to bound false discoveries before they propagate into cross-pattern or root-cause analysis. When the pattern declares `fdr_hierarchy:` (spatial) or `fdr_temporal_hierarchy:` (temporal) in `sphere.yaml`, add `fdr_resolution="<spatial_level>"` and/or `fdr_temporal_resolution="<temporal_level>"` to scope BH/Storey FDR to a sub-population — surfaces "this bank / this quarter is suspicious" rather than "these accounts are suspicious". For single-dim driver investigation, use `fdr_axis="per_dim"` with `rank_by="min_q_per_dim"` — re-ranks survivors by smallest per-dim q-value so a rare-but-real single-dim signal that joint-norm tests dilute surfaces first. Full FDR cheatsheets live in `gds-detective`.
 
 ### Root cause the findings
 
@@ -99,6 +105,16 @@ compare_entities(key, normal_peer)  → HOW does it differ?
 ```
 
 Minimum: first 3 links. Fourth for top-priority findings only.
+
+**One-call shortcut:** `investigate_entity(primary_key, pattern_id, line_id=<event_pattern>)` chains polygon shape + `explain_anomaly` + witness cohort + chains + `trace_root_cause` + `find_graph_geometry_tension` into one MCP call with per-step `steps_status`. Use as default Phase 2 entry when one structured report beats six manual calls; drop into the per-step chain only when fine-grained control is needed. Entity-side analog of `investigate_chain`.
+
+**Reliability filter before opening a case:** every flagged polygon now carries `reliability_flags` on `find_anomalies`, `explain_anomaly`, `composite_risk`, `combine_anomaly_pvalues`, and `investigate_entity`. Two flags fire independently — `single_dim_driven=true` (one dim contributes >70 % of attribution, likely data-quality artefact) and `low_confidence_bucket=true` (bootstrap `anomaly_confidence < 0.5`, fragile to resampling). Treat either as a soft hit; corroborate with a second detector before escalating. When `single_dim_driven=true` fires, call `find_diverse_explanations(primary_key, pattern_id, n_hypotheses=3)` to surface alternative hypotheses beyond the dominant dim.
+
+**Counterfactual drill-down** (4 tools, edge-table required for the first three):
+- `simulate_edge_removal(key, pattern_id, line_id, top_n=5)` — rank an entity's edges by contribution to `delta_norm`; returns `(edge_id, drop_pct, dominant_dim_label)` per edge. Answers "which transactions made this entity anomalous".
+- `simulate_counterparty_removal(key, pattern_id, line_id, top_n=5)` — collapse all edges to one counterparty per call; ranks counterparties by aggregate `delta_norm` drop.
+- `select_minimal_joint_edge_removal(key, pattern_id, line_id, target="flip")` — smallest edge set whose joint removal flips the anomaly verdict.
+- `simulate_dimension_change(key, pattern_id, line_id, set_dimension={dim: value})` — what-if shape-vector override; reports `delta_norm_before/after`, the anomaly-flag flip, and new top witness dims.
 
 ### Step 4T — Cross-validate + temporal
 

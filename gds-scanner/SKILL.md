@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Requires hypertopos MCP server. Designed for Claude Code and compatible agents.
 metadata:
   author: Karol Kędzia
-  version: 0.5.0
+  version: 0.7.0
   mcp-server: hypertopos
 ---
 
@@ -70,6 +70,12 @@ Bregman ranking scores each dimension according to its statistical kind (KL for 
 
 The two calls serve different purposes: the first gives full coverage, the second prunes borderline detections before expensive multi-pattern verification. Use both when the scan feeds into cross-pattern discrepancy or neighbor contamination — unstable anomalies inflate false discrepancy signals.
 
+**Multi-resolution FDR — spatial × temporal hierarchies.** When the pattern declares `fdr_hierarchy:` (spatial) and/or `fdr_temporal_hierarchy:` (temporal) in `sphere.yaml`, `find_anomalies` accepts `fdr_resolution="<spatial_level>"` and `fdr_temporal_resolution="<temporal_level>"` to gate returned anomalies to cells that cleared per-level BH/Storey FDR. Use `fdr_resolution` to surface "this bank / this region is the hot-spot" (population-level rate spike in a sub-group), `fdr_temporal_resolution` for "this epoch fired" (time window with elevated density that entity-axis FDR cannot see). Combined → intersection: an entity survives only when its cell cleared every named level on BOTH axes. Setting either parameter auto-upgrades the entity-axis test to `p_value_method="chi2"` + `fdr_method="storey"` (otherwise rank p-values collapse FDR to no-op under cell gating). Watch for degenerate levels (single-cell levels rejecting nothing) — drop to single-axis mode before raising alpha.
+
+**FDR axis selection — entity vs per-dim.** Default `fdr_axis="entity"` controls FDR over per-entity joint-norm tests (one p-value per entity, df = dimensionality). `fdr_axis="per_dim"` runs independent BH/Storey corrections per dimension on chi²(1) univariate p-values and keeps an entity iff *any* dim's q-value clears alpha — surfaces rare-but-real single-dim signals that joint-norm tests dilute. `fdr_axis="both"` requires survival on both tests (strictest, smallest candidate list). Per-dim mode attaches `q_values_per_dim`, `min_q_per_dim`, and `dominant_q_dim_idx` to every returned polygon — downstream root cause reads which dim drove the survivor straight from the result. Pair with `rank_by="min_q_per_dim"` to re-rank survivors by smallest per-dim q-value ascending (most extreme single-dim signal first).
+
+**Reliability filter before downstream work.** Every flagged polygon carries `reliability_flags` — two flags fire independently: `single_dim_driven=true` (one dim contributes >70 % of attribution; likely data-quality artefact rather than multi-dim fraud signal) and `low_confidence_bucket=true` (bootstrap `anomaly_confidence < 0.5`; fragile to resampling). Treat either as a soft hit before feeding into cross-pattern or contamination analysis — unstable anomalies inflate false discrepancy signals.
+
 ---
 
 ## Choosing which scans to run
@@ -82,6 +88,7 @@ The two calls serve different purposes: the first gives full coverage, the secon
 | Categorical properties (nation, segment, region) | Population segment shift |
 | Sphere has aliases (`get_sphere_info` shows aliases) | Alias anomaly scan — **mandatory** |
 | Pattern has edge table (`edge_stats` returns `has_edge_table: true`) | `contagion_score_batch` for neighbor contamination via transaction graph |
+| Any anchor pattern with ≥ 5 dims | Topological / local-cycle anomalies — `find_topological_anomalies(pattern, top_n=20, k_neighbors=100)` ranks by local H_1 cycle persistence. Empirical lift is mid-rank, NOT top-N: use as composition input for HMP / `passive_scan`, not a top-N drill-down replacement |
 
 ---
 
@@ -294,3 +301,4 @@ Decompose by segment before dismissing.
 | Drift interpretation, regime change handling | gds-monitor |
 | Orientation, profiling, clustering | gds-explorer |
 | Single-call detection of all 4 scan types | Use `detect_cross_pattern_discrepancy`, `detect_neighbor_contamination` (inverted search), `detect_trajectory_anomaly` (full temporal scan), `detect_segment_shift` MCP tools directly |
+| Multi-resolution / per-dim FDR depth | Full cheatsheet in gds-detective ("Multi-resolution FDR" + "FDR axis selection") |

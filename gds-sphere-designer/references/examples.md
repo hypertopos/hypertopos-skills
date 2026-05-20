@@ -27,7 +27,7 @@ patterns:
   account_behavior_pattern:
     type: anchor
     entity_line: accounts
-    description: "Account behavioral profile — transaction activity, diversity, and burst patterns. Orthogonal to stress/loan patterns for NB-Split-style composite scoring via Fisher's method."
+    description: "Account behavioral profile — transaction activity, diversity, and burst patterns. Orthogonal to stress/loan patterns for NB-Split-style composite scoring via the Wilson harmonic-mean p-value (HMP)."
     derived_dimensions:
       - from_pattern: tx_pattern
         features:
@@ -72,7 +72,7 @@ patterns:
     tracked_properties: [loan_status, has_loan]
 ```
 
-**What this does:** Both patterns point to the same source data (`accounts`), but they use separate entity lines (`accounts` vs `accounts_stress`). The behavioral pattern captures activity signals; the stress pattern captures financial distress signals. Because they live on different lines, their geometry is completely independent — mu/sigma/theta for stress is calibrated against stress dimensions only, never contaminated by activity counts. You can then combine the two anomaly scores via Fisher's method at query time.
+**What this does:** Both patterns point to the same source data (`accounts`), but they use separate entity lines (`accounts` vs `accounts_stress`). The behavioral pattern captures activity signals; the stress pattern captures financial distress signals. Because they live on different lines, their geometry is completely independent — mu/sigma/theta for stress is calibrated against stress dimensions only, never contaminated by activity counts. You can then combine the two anomaly scores at query time via the Wilson harmonic-mean p-value (HMP) — robust under positive dependence between sibling patterns.
 
 **When to use:** Any time an entity has two or more conceptually orthogonal risk dimensions that would distort each other if mixed into a single delta vector. Classic cases: activity vs. stress in banking, volume vs. pricing in supply chain, operational vs. financial in GL.
 

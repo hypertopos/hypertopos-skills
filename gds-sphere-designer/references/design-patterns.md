@@ -52,9 +52,11 @@ are behavioral (normal for defaults) and 5 are credit risk (discriminative),
 the 12 dilute the 5. Recall drops because defaults are not behavioral outliers.
 
 **Solution (HPL-2009-225):** Split dimensions into orthogonal groups — each
-group captures an independent aspect. Then combine signals via Fisher's method
-(`composite_risk` / `passive_scan`). This is equivalent to Naive Bayes
-assumption between tables (inter-table independence) from the paper.
+group captures an independent aspect. Then combine signals via the Wilson
+harmonic-mean p-value (`composite_risk` / `passive_scan`). HMP is robust under
+positive dependence between p-values, so even sibling patterns sharing
+derived dimensions stay safe to combine — the Naive Bayes inter-table
+independence assumption from the paper is no longer required.
 
 ```yaml
 # BAD: one mega-pattern with mixed concerns
@@ -75,7 +77,8 @@ account_loan_pattern:        # loan exposure
 
 **How it works:**
 - Each pattern independently flags anomalies from its own perspective
-- `composite_risk(entity_key)` combines p-values via Fisher's method
+- `composite_risk(entity_key)` combines p-values via the Wilson harmonic-mean
+  p-value (HMP), robust under positive dependence between cross-pattern p-values
 - `passive_scan(line_id, threshold=2)` finds entities flagged in 2+ patterns
 - A default may be normal in behavior but anomalous in stress + loan →
   `source_count=2`, `combined_p` is low → detected
@@ -87,16 +90,17 @@ account_loan_pattern:        # loan exposure
 | Single mega-pattern (10+ dims, shared line) | Low (~30%) |
 | NB-Split patterns (shared line) | Medium (~60-70%) |
 | Isolated pattern (own line, 3-8 dims) | High (~80-90%) |
-| Isolated + cross-line Fisher composite | Highest (~85-95%) |
+| Isolated + cross-line HMP composite | Highest (~85-95%) |
 
 Key insight: fewer focused dims on an isolated entity line outperforms both
-mega-patterns and multi-pattern composite scoring. Cross-line Fisher bridging
+mega-patterns and multi-pattern composite scoring. Cross-line HMP bridging
 recovers additional borderline entities that are elevated in 2+ patterns.
 
 **Cross-line bridging:** Lines sharing the same `source` in sphere.yaml are
 recognized as sibling lines at runtime. `composite_risk` and `passive_scan`
-automatically bridge across sibling lines — combining p-values via Fisher's
-method. This requires no YAML changes beyond using the same `source:` value.
+automatically bridge across sibling lines — combining p-values via the Wilson
+harmonic-mean p-value, robust under positive dependence between sibling
+patterns. This requires no YAML changes beyond using the same `source:` value.
 
 **Design rules:**
 - Each pattern should capture ONE logical concern (behavior vs stress vs exposure)
@@ -129,7 +133,8 @@ lines instead — these bridge across lines automatically via shared `source:`. 
 ## NB-Split vs. multi-source pipeline: when to use which
 
 NB-Split isolates orthogonal concerns into separate patterns and combines them via
-Fisher's method. This works when each concern group has a **distinct geometric
+the Wilson harmonic-mean p-value (HMP), robust under positive dependence between
+patterns. This works when each concern group has a **distinct geometric
 signature** — different top dimensions, different entity populations.
 
 Some domains require a different primary strategy: **multi-source pipeline** —

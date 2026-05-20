@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Requires hypertopos MCP server. Designed for Claude Code and compatible agents.
 metadata:
   author: Karol Kędzia
-  version: 0.4.1
+  version: 0.7.0
   mcp-server: hypertopos
 ---
 
@@ -52,13 +52,23 @@ After these 3 calls, check for signals that guide next steps:
   high-confidence detections before investing in full investigation.
 - **`profiling_alerts`** — run each alert's suggested call
   (`find_anomalies(rank_by_property=<dim>)`) on every pattern including composites.
+- **`dim_quality_warnings`** — four silent-failure auditors fire per pattern:
+  `dead_dim` (zero-variance dim; z-score undefined), `sparse_dim` (mostly-zero
+  with rare nonzero tail; gaussian assumption wrong), `dominant_dim_mass`
+  (pattern-level: one dim ≥ 70 % of tail variance — sphere is a one-dim detector
+  on this pattern, multi-dim composition adds little) and `negative_space`
+  (gaussian-declared dim sitting at point-mass-at-zero — z-score treats zero
+  as typical when it is the absence value). If `dominant_dim_mass` or
+  `negative_space` fires, raise a calibration ticket rather than investigating
+  the flagged entities — they are likely noise. Full triage rules in `gds-monitor`.
 - **`has_temporal: true`** — for each temporal pattern, consider running
   `find_drifting_entities(pattern_id, top_n=3)` to detect behavioral changes.
 - **Event patterns with edge tables** — run `edge_stats(pattern_id)` for each
   event pattern. If `has_edge_table: true`, note that graph traversal tools
-  (`find_geometric_path`, `discover_chains`) are available for that pattern.
-  The stats (row_count, unique_from/to, avg_degree) help estimate graph density
-  before committing to path-finding or chain discovery calls.
+  (`find_geometric_path`, `discover_chains`) and behavioural-vs-graph cross-tab
+  (`find_graph_geometry_tension(primary_key, anchor_pattern, line_id=event_pattern)`)
+  are available for that pattern. The stats (row_count, unique_from/to, avg_degree)
+  help estimate graph density before committing to path-finding or chain discovery calls.
 
 **MANDATORY: always run `find_clusters` on every anchor pattern during
 orientation.** Population archetypes reveal structural segments (e.g. airport

@@ -6,6 +6,50 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.7.0] — 2026-05-18
+
+### Added
+
+#### Multi-hypothesis explanation + counterfactual cheatsheets
+- `gds-investigator` and `gds-fraud-investigator` — `find_diverse_explanations` block added next to `explain_anomaly` guidance; covers when to invoke and how to read `degraded_reason="insufficient_diverse_mass"`.
+- `gds-investigator` and `gds-fraud-investigator` — counterfactual cheatsheet covers the full four-tool suite: `simulate_edge_removal`, `simulate_counterparty_removal`, `select_minimal_joint_edge_removal`, and `simulate_dimension_change` — with per-tool guidance on edge-level / counterparty-level / minimal-joint-set / what-if-dimension questions.
+- `gds-analyst` — root-cause section gains the `investigate_entity` one-call orchestrator entry point, the `reliability_flags` soft-hit gate (single_dim_driven / low_confidence_bucket), `find_diverse_explanations` for single-dim-driven cases, and the full counterfactual suite (4 tools).
+
+#### Chain extensions
+- `gds-fraud-investigator` — R9 recipe gains `chain_witness_intersection` and `chain_drift_trajectory` diagnostic steps; mirrored in `references/recipes.md`.
+- `gds-investigator` — chain-anchor cheatsheet extended with `chain_witness_intersection` and `chain_drift_trajectory`.
+
+#### Declarative compliance rules
+- `gds-fraud-investigator` and `gds-investigator` — `find_conformance_violations` block added covering the rule-break + geometric-anomaly cross-check workflow.
+- `gds-sphere-designer` — new "Declarative compliance rules (`conformance_rules:`)" section with the predicate AST schema (logical `and`/`or`/`not` over `==`/`!=`/`<`/`<=`/`>`/`>=`/`in`), `rule_id` + `severity` semantics, sample YAML with two rules, and the build-time materialization path (`_gds_meta/conformance/violations/{pattern_id}/v={N}.lance` + `rule_set_hash` invalidation).
+- `gds-analyst` — hint-category table gains a "Compliance rule break" row pointing at `find_conformance_violations` with the `investigate_entity` cross-check workflow.
+
+#### FDR cheatsheets
+- `gds-detective` — "Multi-resolution FDR: spatial × temporal hierarchies" section covering `fdr_resolution` / `fdr_temporal_resolution` on `find_anomalies` with spatial-only, temporal-only, and intersection examples.
+- `gds-detective` — "FDR axis selection" and "Ranking by per-dim significance" paragraphs covering `fdr_axis` and `rank_by="min_q_per_dim"` semantics on `find_anomalies`.
+- `gds-scanner` — FDR-control section extended with multi-resolution FDR (`fdr_resolution` / `fdr_temporal_resolution`), per-dim FDR axis (`fdr_axis="per_dim"` / `"both"`), and `rank_by="min_q_per_dim"` re-ranking guidance.
+- `gds-analyst` — FDR control paragraph added covering `fdr_alpha` baseline plus a pointer at multi-resolution and per-dim FDR with cross-link to `gds-detective` for the full cheatsheet.
+
+#### Detector composition
+- `gds-detective` and `gds-investigator` — multi-pattern section gains `combine_anomaly_pvalues([(pattern_id, p), ...], method="hmp"|"fisher")` for arbitrary-detector p-value composition and `classify_detector_consensus` for unanimous / majority / split / unanimous_normal labeling.
+- `gds-analyst` — hint-category table gains a "Detector composition" row routing at `combine_anomaly_pvalues` and `classify_detector_consensus`.
+
+#### Topological / graph-geometry scans
+- `gds-scanner` — relevant-scan table gains a row for `find_topological_anomalies(pattern, top_n=20, k_neighbors=100)` with the empirical-lift caveat (mid-rank, NOT a top-N drill-down replacement; use as composition input for HMP / `passive_scan`).
+- `gds-analyst` — hint-category table gains rows for `find_topological_anomalies` (local H_1 cycle persistence) and `find_graph_geometry_tension` (behavioural-vs-edge cross-tab).
+
+#### Sphere-validation cheap-tier
+- `gds-monitor` and `gds-investigator` — `sphere_overview` notes extended to cover the new `dim_quality_warnings` types `dominant_dim_mass` and `negative_space`.
+- `gds-explorer` — orientation `dim_quality_warnings` bullet names the four auditors (`dead_dim`, `sparse_dim`, `dominant_dim_mass`, `negative_space`) with calibration-ticket guidance for the two pattern-level signals.
+
+#### Reliability triage
+- `gds-scanner` — FDR-control section extended with `reliability_flags` soft-hit gate (single_dim_driven / low_confidence_bucket) before feeding into cross-pattern or contamination analysis.
+
+### Changed
+- `gds-analyst` — body refreshed against the 0.6.x chain investigation surface and the full 0.7.0 detection upgrades; `metadata.version` bumped from `0.2.2`.
+- `gds-scanner` — body refreshed with multi-resolution FDR, per-dim FDR, `find_topological_anomalies`, and `reliability_flags` filter; `metadata.version` bumped from `0.5.0`.
+- `gds-analyst` / `gds-detective` / `gds-sphere-designer` — cross-pattern composition references refreshed from Fisher's method to the Wilson harmonic-mean p-value (HMP).
+
 ## [0.6.7] — 2026-05-10
 
 ### Added

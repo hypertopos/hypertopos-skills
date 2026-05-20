@@ -517,9 +517,9 @@ composite_risk(key="SUPP-5678", line_id="suppliers")
 }
 ```
 
-**What to look for:** `combined_p < 0.05` via Fisher's method. Each individual pattern shows borderline or non-significant p-values, but combined they are highly significant (p = 0.003).
+**What to look for:** `combined_p < 0.05` via the Wilson harmonic-mean p-value (HMP) — robust under positive dependence between cross-pattern p-values. Each individual pattern shows borderline or non-significant p-values, but combined they are highly significant (p = 0.003).
 
-**Finding:** "SUPP-5678 is normal in anchor pattern (delta_norm 0.72) but flagged by 2 other patterns: 22% event anomaly rate + 4 anomalous composites. Fisher's combined p-value = 0.003. Multi-pattern convergence confirms this entity as anomalous despite passing the primary pattern's theta threshold."
+**Finding:** "SUPP-5678 is normal in anchor pattern (delta_norm 0.72) but flagged by 2 other patterns: 22% event anomaly rate + 4 anomalous composites. HMP combined p-value = 0.003. Multi-pattern convergence confirms this entity as anomalous despite passing the primary pattern's theta threshold."
 
 ---
 

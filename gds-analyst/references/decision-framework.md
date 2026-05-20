@@ -27,7 +27,8 @@ Step 3: explain_anomaly(key, flagging_pattern_id)
 
 Step 4: For borderline entities (elevated but not flagged):
         composite_risk(key, line_id)
-        → Fisher's method p-value — combined_p < 0.05 = significant
+        → Wilson harmonic-mean p-value (HMP) — robust under positive
+        dependence between cross-pattern p-values; combined_p < 0.05 = significant
 ```
 
 **What you're looking for:** supplier anomalous in pricing but NORMAL in
