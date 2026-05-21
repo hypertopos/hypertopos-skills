@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Requires hypertopos CLI (pip install hypertopos). No live MCP session needed for design phases.
 metadata:
   author: Karol Kedzia
-  version: 0.7.0
+  version: 0.7.1
   mcp-server: hypertopos
 ---
 
@@ -320,6 +320,47 @@ patterns:
 When to use: entity has numeric attributes (balance, age, rating) or spatial
 coordinates that should influence anomaly detection. Without these blocks, the
 shape vector only captures relational structure (who is connected to whom).
+
+### Label-aware calibration (`label_audit:`)
+
+When the entity line carries a binary outcome column (e.g. `is_laundering`,
+`is_fraud`, `default_flag`), declare a top-level `label_audit:` block to
+unlock class-conditioned per-dim calibration. Build with the
+`--label-aware-calibration` flag to activate; the builder runs
+`engine.calibration_label_aware.calibrate_label_aware` per listed pattern
+and persists `{mu_pos, sigma_pos, mu_neg, sigma_neg, direction}` per dim
+plus a unit Fisher LDA direction vector onto `Pattern.label_aware_calibration`.
+Sphere format stamps `3.1` when the block is declared; legacy 3.0 spheres
+load unchanged.
+
+```yaml
+label_audit:
+  label_column: is_laundering        # binary column on the entity line
+  label_positive_value: 1            # value treated as the positive class
+  patterns:
+    - tx_pattern                     # patterns to calibrate (event or anchor)
+```
+
+What this unlocks downstream:
+- `audit_pattern_dims(pattern_id, top_k=10)` returns the full-field path —
+  per-dim Cohen's d separation + Fisher direction component +
+  `recommended_action` ∈ {keep, split, drop_low_separation,
+  investigate_drift, kind_mismatch_review}. Without the block the tool
+  returns a fallback shape with raw mu/sigma only.
+- `delta_norm_signed` Lance column populates with the per-polygon
+  projection onto the Fisher LDA direction (positive ⟹ pushed toward
+  positive-labelled centroid, negative ⟹ toward the other class).
+  All-null on patterns without label-aware calibration.
+
+The label column must be a column on the patterns' entity_line (for
+event patterns: the event line itself; for anchor patterns: a column on
+the anchor line). The block validates pattern names against the
+`patterns:` registry; an unknown pattern fails the build.
+
+Use when: the sphere has a ground-truth label that an investigator
+would want to "show me dims the positive class deviates on". Skip when
+no label column exists — the standard mu/sigma calibration path is
+already sufficient.
 
 ### Declarative compliance rules (`conformance_rules:`)
 

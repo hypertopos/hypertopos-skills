@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Requires hypertopos MCP server. Designed for Claude Code and compatible agents.
 metadata:
   author: Karol Kędzia
-  version: 0.7.0
+  version: 0.7.1
   mcp-server: hypertopos
 ---
 
@@ -109,6 +109,8 @@ Minimum: first 3 links. Fourth for top-priority findings only.
 **One-call shortcut:** `investigate_entity(primary_key, pattern_id, line_id=<event_pattern>)` chains polygon shape + `explain_anomaly` + witness cohort + chains + `trace_root_cause` + `find_graph_geometry_tension` into one MCP call with per-step `steps_status`. Use as default Phase 2 entry when one structured report beats six manual calls; drop into the per-step chain only when fine-grained control is needed. Entity-side analog of `investigate_chain`.
 
 **Reliability filter before opening a case:** every flagged polygon now carries `reliability_flags` on `find_anomalies`, `explain_anomaly`, `composite_risk`, `combine_anomaly_pvalues`, and `investigate_entity`. Two flags fire independently — `single_dim_driven=true` (one dim contributes >70 % of attribution, likely data-quality artefact) and `low_confidence_bucket=true` (bootstrap `anomaly_confidence < 0.5`, fragile to resampling). Treat either as a soft hit; corroborate with a second detector before escalating. When `single_dim_driven=true` fires, call `find_diverse_explanations(primary_key, pattern_id, n_hypotheses=3)` to surface alternative hypotheses beyond the dominant dim.
+
+**Pre-investigation dim audit** — before opening a multi-finding case on a labelled sphere (`get_sphere_info` shows `label_aware_available: true`), call `audit_pattern_dims(pattern_id, top_k=10)` once. Returns per-dim raw mu/sigma + class-conditioned moments + Cohen's d + Fisher LDA direction component, sorted by `|cohens_d_pos_neg|` desc. Flags `recommended_action` ∈ {keep, split, drop_low_separation, investigate_drift, kind_mismatch_review} per dim. Use to (a) identify which dims actually carry label-discriminating signal — focus drill-down on those; (b) flag `drop_low_separation` dims as noise contributors — explain anomalies on remaining dims rather than the noisy ones; (c) catch `kind_mismatch_review` candidates pre-write-up — empirical departure from the declared kind means raw `delta_norm` mis-ranks. On spheres without `label_audit:` block the tool falls back to raw stats only, still useful for surfacing per-dim mu/sigma ranking.
 
 **Counterfactual drill-down** (4 tools, edge-table required for the first three):
 - `simulate_edge_removal(key, pattern_id, line_id, top_n=5)` — rank an entity's edges by contribution to `delta_norm`; returns `(edge_id, drop_pct, dominant_dim_label)` per edge. Answers "which transactions made this entity anomalous".

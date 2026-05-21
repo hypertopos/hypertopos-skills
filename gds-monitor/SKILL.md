@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Requires hypertopos MCP server. Designed for Claude Code and compatible agents.
 metadata:
   author: Karol Kędzia
-  version: 0.7.0
+  version: 0.7.1
   mcp-server: hypertopos
 ---
 
@@ -213,7 +213,7 @@ a safe recalibration move.
 
 ## Dim-quality warnings
 
-`sphere_overview()` carries an optional `dim_quality_warnings[]` block per pattern surfacing two silent build-time failure modes that break z-score / `delta_norm` semantics. Both classes were previously invisible at agent runtime — the dim sat in the delta vector contributing nothing or contributing wrong signal, and the investigator had no way to know without scrolling the calibration log.
+`sphere_overview()` carries an optional `dim_quality_warnings[]` block per pattern surfacing silent build-time failure modes that break z-score / `delta_norm` semantics. These were previously invisible at agent runtime — the dim sat in the delta vector contributing nothing or contributing wrong signal, and the investigator had no way to know without scrolling the calibration log.
 
 | `type` | Trigger | Why it breaks `delta_norm` |
 |---|---|---|
@@ -221,17 +221,21 @@ a safe recalibration move.
 | `sparse_dim` | `dim_percentiles[d]['p50'] == 0` AND `p99 > 0` (mostly-zero with rare nonzero) | gaussian z-score assumption is wrong — empirical distribution is point-mass-at-zero plus a tail; Bregman divergence with poisson / bernoulli kind tag is the correct distance |
 | `dominant_dim_mass` | pattern-level: one dim's share of `((p99 − μ_d) / σ_d)²` across dims ≥ 0.70 | pattern's `delta_norm` ranking is effectively single-dim; the sphere is a one-dim detector on this pattern, multi-dim composition adds little |
 | `negative_space` | per-dim: `dim_percentiles[d]['p50'] == 0` AND `dimension_kinds[i] == "gaussian"` | gaussian z-score is wrong — empirical distribution is point-mass-at-zero, not centered on the mode; gaussian semantics treat zero as the typical value when it is actually the absence value |
+| `heteroscedasticity` | pattern-level: Brown-Forsythe (median-centred Levene) `p < 0.01` on `delta_norm` partitioned by `group_by_property` | global θ assumption violated for this pattern; `delta_norm` variance differs sharply across the levels of the grouping variable, so a single global threshold produces unequal false-positive rates per group |
+| `non_normal_dim` | per-dim: Shapiro-Wilk (N ≤ 5000) or Kolmogorov-Smirnov (larger N) `p < 0.01` on a `kind='gaussian'` dim | gaussian z-score is wrong — empirical distribution is heavy-tailed, so `(x − μ) / σ` produces unequal false-positive rates per quantile of the dim; mu/sigma are stable but the percentile semantics are not |
 
-Each warning carries `dim_label`, `reason` (the offending value), and `advice` (concrete remediation); the `dominant_dim_mass` auditor additionally carries `evidence_value` (the firing share) + `threshold` (the cutoff) so the agent can rank patterns by severity. Triage rules:
+Each warning carries `dim_label`, `reason` (the offending value), and `advice` (concrete remediation); `dominant_dim_mass` and `heteroscedasticity` additionally carry `evidence_value` (the firing metric — share for dominant_dim_mass, p-value for heteroscedasticity) + `threshold` (the cutoff) so the agent can rank patterns by severity. Note: the `heteroscedasticity` warning's `dim_label` is the GROUPING VARIABLE name (a categorical line property), not a δ-dim — unlike the per-dim auditors. Triage rules:
 
-**New pattern-level calibration auditors** — `dominant_dim_mass` and `negative_space` are sphere-design-quality signals; if they fire, raise a calibration ticket rather than chasing the entities flagged by `find_anomalies` on the affected pattern — those entities are likely noise.
+**Pattern-level calibration auditors** — `dominant_dim_mass`, `negative_space`, and `heteroscedasticity` are sphere-design-quality signals; if they fire, raise a calibration ticket rather than chasing the entities flagged by `find_anomalies` on the affected pattern — those entities are likely noise.
 
 - **Any `dead_dim` warning**: drop the dim from the pattern, OR investigate the data source for missing values / constant column. Builder-time issue — won't fix itself on rebuild without a YAML edit.
 - **`sparse_dim` warning on a binary-like signal** (e.g. structuring flag, fraud label): switch to Bregman with `kind: bernoulli`. The warning is not a bug — it's the gaussian assumption being wrong for the data shape.
 - **`sparse_dim` warning on a sparse counter** (e.g. tx-count where most accounts have zero): split into `is_active` (bernoulli) + `tx_count_when_active` (poisson) dims. The single-dim representation conflates two regimes.
 - **`dominant_dim_mass` warning**: cross-check per-polygon `reliability_flags.single_dim_driven` incidence on `find_anomalies` top-N for the same pattern — pattern-level dominance ⟹ high per-polygon incidence agreement. Raise a calibration ticket; consider splitting the dominant dim into its own pattern or re-weighting via `dimension_weights` so the other dims actually contribute.
 - **`negative_space` warning**: re-declare the dim with `kind='bernoulli'` (presence/absence) or `kind='poisson'` (count), or split into a binary `is_active` dim plus a continuous `value_when_active` dim. Same remediation family as `sparse_dim` but the trigger is gaussian-declared, not empirical-distribution-shaped.
-- **No `dim_quality_warnings` block**: pattern passed all four checks. Don't infer "perfectly healthy" — the warnings only catch the four specific silent-failure modes; other quality issues (correlated dims, stale data, drifted calibration) need separate diagnostics.
+- **`heteroscedasticity` warning**: per-group θ calibration is statistically warranted on the named grouping — the pattern already carries it via `group_by_property`, so the warning is confirmation, not a prescription for new work. If per-group θ is undesirable downstream (e.g. cross-group comparison of anomaly scores), apply a variance-stabilizing transform — `log1p` on `delta_norm` before thresholding — to make scores comparable across groups. Re-check after rebuild: variance-stabilizing should push the Levene p-value back above 0.01.
+- **`non_normal_dim` warning**: the empirical distribution of a gaussian-declared dim is heavy-tailed — z-score percentiles are unstable. Remediation in priority order: (a) re-declare kind as `'poisson'` (counts) or `'bernoulli'` (binary) if the data shape fits; (b) apply variance-stabilizing transform in the column source script (`log1p` for skewed positive, `sqrt` for right-skewed) and rebuild; (c) accept the warning if the dim is rarely top-of-rank — non-normal dims rarely dominate `delta_norm` rankings on their own. Composes with `negative_space`: if `negative_space` already fires on the same dim, `non_normal_dim` is suppressed (the kind itself is the bug, not the empirical departure).
+- **No `dim_quality_warnings` block**: pattern passed all five checks. Don't infer "perfectly healthy" — the warnings only catch the five specific silent-failure modes; other quality issues (correlated dims, stale data, drifted calibration) need separate diagnostics.
 
 ---
 

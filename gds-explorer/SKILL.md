@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Requires hypertopos MCP server. Designed for Claude Code and compatible agents.
 metadata:
   author: Karol Kędzia
-  version: 0.7.0
+  version: 0.7.1
   mcp-server: hypertopos
 ---
 
@@ -52,15 +52,19 @@ After these 3 calls, check for signals that guide next steps:
   high-confidence detections before investing in full investigation.
 - **`profiling_alerts`** — run each alert's suggested call
   (`find_anomalies(rank_by_property=<dim>)`) on every pattern including composites.
-- **`dim_quality_warnings`** — four silent-failure auditors fire per pattern:
+- **`dim_quality_warnings`** — five silent-failure auditors fire per pattern:
   `dead_dim` (zero-variance dim; z-score undefined), `sparse_dim` (mostly-zero
   with rare nonzero tail; gaussian assumption wrong), `dominant_dim_mass`
   (pattern-level: one dim ≥ 70 % of tail variance — sphere is a one-dim detector
-  on this pattern, multi-dim composition adds little) and `negative_space`
+  on this pattern, multi-dim composition adds little), `negative_space`
   (gaussian-declared dim sitting at point-mass-at-zero — z-score treats zero
-  as typical when it is the absence value). If `dominant_dim_mass` or
-  `negative_space` fires, raise a calibration ticket rather than investigating
-  the flagged entities — they are likely noise. Full triage rules in `gds-monitor`.
+  as typical when it is the absence value), and `heteroscedasticity`
+  (pattern-level: Brown-Forsythe Levene `p < 0.01` on `delta_norm` partitioned
+  by the pattern's `group_by_property` — the global θ assumption is
+  statistically violated; `dim_label` carries the grouping variable name, not
+  a δ-dim). If `dominant_dim_mass`, `negative_space`, or `heteroscedasticity`
+  fires, raise a calibration ticket rather than investigating the flagged
+  entities — they are likely noise. Full triage rules in `gds-monitor`.
 - **`has_temporal: true`** — for each temporal pattern, consider running
   `find_drifting_entities(pattern_id, top_n=3)` to detect behavioral changes.
 - **Event patterns with edge tables** — run `edge_stats(pattern_id)` for each

@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.7.1] — 2026-05-20
+
+### Added
+- `gds-monitor`, `gds-investigator`, `gds-explorer` — `dim_quality_warnings` triage table extended with the new pattern-level `heteroscedasticity` auditor: fires when the persisted Brown-Forsythe Levene `p < 0.01` on `delta_norm` partitioned by the pattern's `group_by_property`. The warning's `dim_label` carries the grouping variable name (a categorical line property), not a δ-dim. Triage rule: the pattern already carries per-group calibration via `group_by_property`, so the warning is confirmation that calibration was statistically warranted — investigate cross-group anomaly score comparison rather than per-entity anomalies on the affected pattern; if cross-group comparison is needed, apply variance-stabilizing transform (`log1p`) on `delta_norm` before thresholding.
+- `gds-monitor`, `gds-investigator`, `gds-explorer` — triage table extended with `non_normal_dim` per-dim auditor: fires when a `kind='gaussian'` dim has build-time Shapiro-Wilk / KS `p < 0.01`. Triage rule: the dim's z-score is a poor anomaly scorer because the empirical distribution is heavy-tailed; recommend `log1p` / `sqrt` / `rank` transform before mu/sigma computation, or re-declare kind as `'poisson'` / `'bernoulli'` if applicable. Suppressed when `negative_space` already fires.
+- `gds-investigator` and `gds-analyst` — `audit_pattern_dims(pattern_id, top_k=10)` recipe added: per-dim calibration audit reporting mu / sigma plus class-conditioned moments + Cohen's d + Fisher direction component when the sphere carries a `label_audit:` block. Use to surface label-discriminating dims and to flag `recommended_action: "kind_mismatch_review"` / `"drop_low_separation"` candidates pre-rebuild.
+- `gds-sphere-designer` — new "Label-aware calibration (`label_audit:`)" section covering the top-level YAML block (`label_column`, `label_positive_value`, `patterns: [...]`) — selects which patterns get class-conditioned per-dim stats. Build with `--label-aware-calibration` flag to activate. Composes downstream with `audit_pattern_dims` (full-field path) and `delta_norm_signed` Lance column (signed projection onto Fisher LDA axis).
+
+### Changed
+- `gds-sphere-designer` — the "Declarative compliance rules (`conformance_rules:`)" section is now backed by an end-to-end YAML loader. Authoring rules in `sphere.yaml`, building, and querying via `find_conformance_violations` is the documented flow without manual builder-API calls.
+
 ## [0.7.0] — 2026-05-18
 
 ### Added
