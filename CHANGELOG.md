@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.7.2] — 2026-05-21
+
+Version-bump release for parity with sibling `hypertopos-py` and `hypertopos-mcp` 0.7.2. No skill body changes — 0.7.1 skill updates cover the surfaces shipped in 0.7.2 (`audit_label_alignment`, `chain_full_loop_summary`, `find_anomalies(rank_by="signed_confidence")`, `dive_solid(counterfactual_frozen_population=True)`, `Chain.to_dict() edge_potentials`, `kind_mismatch` warning class — all compose with the existing skill recipes).
+
 ## [0.7.1] — 2026-05-20
 
 ### Added
