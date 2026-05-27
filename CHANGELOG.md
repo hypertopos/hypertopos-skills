@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.7.3] — 2026-05-27
+
+Version-bump release for parity with sibling `hypertopos-py` and `hypertopos-mcp` 0.7.3. No skill body changes — existing skill recipes already cover the new surfaces shipped in `hypertopos-py` / `hypertopos-mcp` 0.7.3 (`audit_pattern_dims` per-dim AUROC, `chain_full_loop_summary` reliability rollup, `find_anomalies(boundary_aware=True)`, `sphere_overview.cross_pattern_discrepancy`, `passive_scan` interpretation hint, `find_similar_entities` neighbor anomaly fields, `dive_solid.trajectory_shape`, `classify_trajectory`, `community_id` graph feature, `find_calibration_influencers(auto_discover=True)`, `calibration_influencer_history`, `near_data_boundary` regime flag).
+
 ## [0.7.2] — 2026-05-21
 
 Version-bump release for parity with sibling `hypertopos-py` and `hypertopos-mcp` 0.7.2. No skill body changes — 0.7.1 skill updates cover the surfaces shipped in 0.7.2 (`audit_label_alignment`, `chain_full_loop_summary`, `find_anomalies(rank_by="signed_confidence")`, `dive_solid(counterfactual_frozen_population=True)`, `Chain.to_dict() edge_potentials`, `kind_mismatch` warning class — all compose with the existing skill recipes).

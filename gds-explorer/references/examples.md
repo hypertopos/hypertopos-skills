@@ -10,7 +10,6 @@ returns and how to interpret it.
 **Output (key fields):**
 ```json
 {
-  "sphere_id": "gds_procurement",
   "patterns": [
     {
       "pattern_id": "supplier_pattern",
@@ -20,7 +19,14 @@ returns and how to interpret it.
       "anomaly_rate": 0.091,
       "geometry_mode": "continuous",
       "calibration_health": "good",
-      "has_temporal": true
+      "has_temporal": true,
+      "profiling_alerts": [
+        {
+          "dimension": "avg_late_days",
+          "alert": "extreme cluster",
+          "suggested_action": "find_anomalies(pattern_id='supplier_pattern', rank_by_property='avg_late_days')"
+        }
+      ]
     },
     {
       "pattern_id": "invoice_pattern",
@@ -33,15 +39,11 @@ returns and how to interpret it.
       "has_temporal": false
     }
   ],
-  "profiling_alerts": [
-    {
-      "pattern_id": "supplier_pattern",
-      "alert": "dimension 'avg_late_days' has kurtosis 12.4 — heavy tail, extreme values may be ranked low by delta_norm",
-      "suggested_action": "find_anomalies(pattern_id='supplier_pattern', rank_by_property='avg_late_days')"
-    }
-  ]
+  "cross_pattern_discrepancy": null
 }
 ```
+
+`cross_pattern_discrepancy` is `null` when no two patterns share the same `entity_line`. When a sphere has two or more patterns on the same line (e.g. an anchor and an event pattern both keyed on `accounts`), the field returns `{"pairs": [{"pattern_a", "pattern_b", "shared_line", n_anomalous_only_in_a, n_anomalous_only_in_b, n_anomalous_in_both, n_anomalous_in_neither, jaccard_anomaly_overlap}]}` — high Jaccard means both detectors agree, low Jaccard means they catch different anomalies.
 
 **What to look for:**
 - `anomaly_rate` in 5-15% range = healthy calibration. Below 3% = theta too
