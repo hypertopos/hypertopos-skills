@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Requires hypertopos CLI (pip install hypertopos). No live MCP session needed for design phases.
 metadata:
   author: Karol Kedzia
-  version: 0.7.1
+  version: 0.8.0
   mcp-server: hypertopos
 ---
 
@@ -629,7 +629,7 @@ hypertopos build --config sphere.yaml --force --verbose
 - **Chain caching:** Extracted chains cached as pickle in `.cache/`. Second build loads in <1s.
 - **Parallel:** Sources load in parallel; geometry + temporal build per-pattern in parallel.
 - **Batched derived dims:** All simple derived dims sharing the same FK computed in a single `group_by` call.
-- **IVF_FLAT indices:** Both geometry and trajectory use IVF_FLAT -- builds in seconds.
+- **IVF_FLAT indices:** Both geometry and trajectory use IVF_FLAT -- builds in seconds. The trajectory ANN index is skipped automatically when a pattern has too few entities to train it; trajectory search then uses a correct brute-force scan, which is fast at that scale.
 
 ### Verify
 
@@ -640,6 +640,41 @@ get_sphere_info()                    # Check: all lines present, total_rows corr
 get_line_profile("entities", "key_property")  # Check: value distribution makes sense
 find_anomalies("entity_pattern", top_n=3)     # Check: anomalies have meaningful dimensions
 ```
+
+### CI / pre-deploy verification (no MCP session needed)
+
+Three `hypertopos sphere` CLI verbs run directly against a built sphere
+directory — no live MCP session — so they slot into a CI gate or a
+pre-deploy script. All three accept `--json` for machine-readable output.
+
+```bash
+# 1. Structural integrity — does every declared line/pattern have its
+#    on-disk directory, and (with --strict) is calibration healthy?
+hypertopos sphere validate my_sphere/ --strict --json
+#    Exits 0 when valid, 1 when invalid. --strict promotes
+#    calibration_health "suspect"/"poor" and dim_quality_warnings from
+#    warnings to errors, so a degraded build fails the gate.
+
+# 2. Health check — composes sphere_overview + check_alerts into a single
+#    status: "ok" (no alerts) / "warning" (MEDIUM) / "critical" (HIGH).
+hypertopos sphere health my_sphere/ --exit-code-on-critical
+#    With --exit-code-on-critical the process exits 2 when any HIGH-severity
+#    alert fires, so `set -e` fails the deploy on a critical sphere.
+
+# 3. Diff against the currently-deployed sphere — pattern inventory
+#    (added / removed / common) + per-pattern calibration drift between
+#    the latest epoch of each.
+hypertopos sphere diff old_sphere/ new_sphere/ --json
+#    Patterns whose calibration schema differs are marked not_comparable
+#    rather than crashing. Use to catch an unintended pattern drop or a
+#    large overall_drift_rms before promoting a rebuild to production.
+```
+
+Recommended gate order: `validate --strict` (structure + calibration must
+pass) → `health --exit-code-on-critical` (no critical geometric alerts) →
+`diff` against the live sphere (review inventory + drift before promote).
+The `stale_vector_index` MEDIUM alert surfaced by `health` is handled by the
+incremental-ingest reindex path in Phase 5b below.
 
 ### Profiling alerts as design signal
 
@@ -666,6 +701,72 @@ After initial build, the user may want to:
 6. **Add aliases** -- segment the population with cutting planes
 
 Each change = edit YAML -> `hypertopos build --force` -> verify. Use skip flags for fast iteration.
+
+### Phase 5b — Incremental ingest (add entities without a full rebuild)
+
+When new or changed entities arrive but the pattern design is fixed, you do
+not need a full `hypertopos build`. The `GDSBuilder` Python API updates one
+pattern's geometry in place against the existing μ/σ/θ calibration. This is a
+Python API path — there is no `hypertopos sphere ingest` CLI verb; drive it
+from a short script.
+
+```python
+import pyarrow as pa
+from hypertopos.builder.builder import GDSBuilder
+
+# Point the builder at the EXISTING built sphere directory.
+builder = GDSBuilder(sphere_id="my_sphere", output_path="my_sphere/")
+
+# changed_entities: an Arrow table with the pattern's primary_key column plus
+# the columns the pattern's dimensions are derived from. New keys are appended;
+# existing keys are updated in place.
+builder.incremental_update(
+    pattern_id="entity_pattern",
+    changed_entities=new_rows,        # pa.Table
+    deleted_keys=None,                # or a list[str] of keys to remove
+    recalibrate="auto",               # "auto" recalibrates only if drift crosses the soft threshold
+    reindex=False,                    # see batched-ingest note below
+)
+```
+
+Key parameters:
+
+- **`recalibrate`** — `"auto"` (default) recalibrates μ/σ/θ only when the
+  appended rows push calibration drift past the soft threshold; `"force"`
+  always recalibrates; `"never"` keeps the existing coordinate system. Use
+  `"never"` for small top-ups where you want appended entities scored against
+  the current population, `"auto"` for ongoing ingestion.
+- **`reindex`** — when `True`, rebuilds the ANN (IVF) vector index immediately
+  so the appended rows are visible to ANN-backed navigation
+  (`detect_trajectory_anomaly`, `find_similar_entities`, `find_drifting_similar`).
+  When `False` (default), the index is rebuilt only once the unindexed fraction
+  crosses ~10% — until then those rows are outside the index and the
+  `stale_vector_index` alert (see gds-monitor) fires.
+
+**Batched ingestion (many small appends):** pay the O(N) rank recompute and the
+reindex once at the end instead of per append:
+
+```python
+for batch in incoming_batches:
+    builder.incremental_update(
+        pattern_id="entity_pattern",
+        changed_entities=batch,
+        recompute_ranks=False,        # defer the global delta_rank_pct recompute
+    )
+builder.finalize_incremental("entity_pattern")  # recompute ranks + reindex once
+```
+
+`finalize_incremental(pattern_id)` recomputes the global `delta_rank_pct`
+percentile across the whole population (making every row standalone-correct
+again) and rebuilds the IVF index so all appended rows are indexed. It is
+idempotent and safe to call after `recompute_ranks=True` updates too. After a
+session, run `hypertopos sphere health my_sphere/` — a clean `stale_vector_index`
+status confirms the reindex took.
+
+**When to full-rebuild instead:** if the pattern's dimension set, relations, or
+the source schema changed, incremental update cannot reconstruct the new
+geometry — edit the YAML and run `hypertopos build --force`. Incremental ingest
+is for new rows under a fixed design, not for design changes.
 
 ### Per-cohort calibration
 

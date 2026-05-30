@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Requires hypertopos MCP server with a financial transaction sphere (account, pair, chain patterns).
 metadata:
   author: Karol Kędzia
-  version: 0.7.0
+  version: 0.8.0
   mcp-server: hypertopos
 ---
 
@@ -172,6 +172,79 @@ Full investigation of a single suspect:
 - `simulate_dimension_change(suspect_pk, "<anchor_pattern>", line_id="<event_pattern>", set_dimension={dim_label: new_value}, top_n=5)` — "would this entity still be anomalous if dim X were value V?". Override one or more raw shape-vector dims, recompute `delta_norm` under the pattern's calibration; reports `delta_norm_before/after`, the anomaly-flag flip, and new top witness dims. Companion to `simulate_edge_removal` for non-edge dimensions. Call `explain_anomaly` first to pick dim_labels and read current raw values.
 
 **Multi-hypothesis explainer**: `find_diverse_explanations(primary_key, pattern_id, n_hypotheses=3)` returns K diverse dim sets, each a separate "why this account is anomalous" hypothesis. Use when triaging cases where `explain_anomaly` flags `single_dim_driven=True` — the primitive's `degraded_reason="insufficient_diverse_mass"` confirms the single-dim case; multiple returned hypotheses unlock parallel SAR narratives (one per dim cluster).
+
+### Pre-SAR triage gate — certainty + detector consensus before escalation
+
+Before escalating a suspect to a SAR or opening a formal case, run two
+agent-correctness composers as a gate. They answer "how much should I trust
+this classification?" and "do my detectors agree?" — the two questions that
+most often turn an escalation into a false positive.
+
+```
+assess_anomaly_certainty(primary_key, pattern_id)
+-> certainty_verdict: "high" | "moderate" | "low" | "contested"
+-> certainty_score, conformal_p, signed_confidence,
+   stability_across_alphas, reliability_flags
+   (single_dim_driven, near_data_boundary, calibration_stale),
+   cross_pattern_consistency, recommended_next_steps
+```
+
+`assess_anomaly_certainty` composes `explain_anomaly`, the entity's stored
+geometry meta, `find_anomalies` (FDR-stability across alphas), `sphere_overview`
+(calibration staleness), and `cross_pattern_profile` into one verdict on how
+confident you should be in the classification — note `certainty_verdict` is
+certainty about the classification, not about anomaly status (a
+confidently-normal entity also scores `"high"`). SAR-escalation routing:
+
+- **`high`** — stable across FDR alphas, not single-dim-driven, not near the
+  data boundary, calibration fresh. Solid foundation for escalation; proceed to
+  the SAR narrative composers.
+- **`moderate`** — partial stability. Corroborate with one more detector
+  (a chain pattern, a witness-cohort overlap) before escalating.
+- **`low`** — fragile: flagged at only one alpha or sitting near the data
+  boundary. Treat as a soft hit; do not escalate on this alone.
+- **`contested`** — the entity's calibrated conformal p-value disagrees with
+  its stored anomaly flag, or it is both single-dim-driven AND near-boundary.
+  Investigate the conflict (re-read `explain_anomaly`, check
+  `near_data_boundary`) before any escalation decision — this is the highest
+  false-positive risk class.
+
+When the entity line has ≥2 patterns, also run the single-entity detector
+consensus:
+
+```
+consensus_classification(primary_key, pattern_id)
+-> classification: "anomalous_consensus" | "mixed_signal" |
+   "single_detector_signal" | "normal_consensus" | "insufficient_data"
+-> anomalous_detectors / normal_detectors / borderline_detectors,
+   n_detectors_fired, hmp, population_rank, interpretation
+```
+
+`consensus_classification` focuses `classify_detector_consensus` on one entity
+(routing the focal row without the agent re-scanning a ranked list). Read the
+classification:
+
+- **`anomalous_consensus`** — 2+ detectors agree anomalous, none dissent. A
+  corroborated escalation target; combine with `assess_anomaly_certainty="high"`
+  for the strongest pre-SAR posture.
+- **`mixed_signal`** — detectors genuinely disagree. The hidden-mule /
+  legitimate-but-extreme surface; inspect which detector dissents via
+  `cross_pattern_profile` before escalating — the disagreeing lens often names
+  the concealment mechanism.
+- **`single_detector_signal`** — one lone detector fired; the weakest evidence
+  class. Corroborate with `passive_scan` or a second pattern before opening a
+  case.
+- **`normal_consensus`** — deprioritise.
+- **`insufficient_data`** — every detector sits in its borderline band; no
+  detector resolves the entity. Widen the detector set or recalibrate.
+
+If the entity is not in the scored sample, the response carries `found=false`
+with a note — raise `sample_size` (or pass `None` for the full population) and
+re-run. Gate rule of thumb: escalate to SAR only when
+`assess_anomaly_certainty` is `high`/`moderate` AND `consensus_classification`
+is `anomalous_consensus` (or a `moderate`/`high` certainty corroborated by a
+second pattern). A `contested` certainty or a `single_detector_signal`
+consensus is a hold-and-corroborate signal, not an escalation.
 
 **Fraud-specific tuning.**
 - **`edge_counterparty_top_n=3..5`** — mule networks typically involve multiple anomalous counterparties; default 1 shows only the single most anomalous cp. For Phase 3 escalation on high-risk suspects, raise to expand each anomalous cp as a separate subtree.

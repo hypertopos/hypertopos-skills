@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Requires hypertopos MCP server. Designed for Claude Code and compatible agents.
 metadata:
   author: Karol Kędzia
-  version: 0.7.1
+  version: 0.8.0
   mcp-server: hypertopos
 ---
 
@@ -52,6 +52,26 @@ is the most common monitoring gap.
 | `theta_miscalibration` | `recalibrate(pattern_id)` then re-check `sphere_overview()` |
 | `regime_changepoint` | `find_regime_changes(pattern_id)` then `compare_time_windows()` for flagged period |
 | `calibration_drift` | Note for next rebuild. Current results still usable. |
+| `stale_vector_index` | Incrementally-appended geometry rows sit outside the ANN (IVF) index, so trajectory / similarity tools (`detect_trajectory_anomaly`, `find_similar_entities`, `find_drifting_similar`) silently miss them. MEDIUM severity. Drill down with the `vector_index_health` block (see below) to read the unindexed fraction, then trigger a reindex on the builder side. |
+
+### `stale_vector_index` drilldown — reading `vector_index_health`
+
+The alert is metadata-only and fires when the unindexed fraction of a pattern's geometry exceeds the stale threshold (default 0.1). There is no standalone health tool — the per-pattern detail is surfaced as a `vector_index_health` block on every `audit_pattern_dims` response:
+
+```
+audit_pattern_dims(pattern_id) -> vector_index_health block:
+  { index_present, index_type, num_indexed_rows, num_unindexed_rows,
+    total_rows, indexed_fraction, num_partitions, is_stale,
+    stale_threshold, recommendation }
+```
+
+Triage:
+
+- **`is_stale == false`** — index covers the population; ANN-backed tools are complete. No action.
+- **`is_stale == true`** — the `recommendation` string names the fix; an unindexed run accumulated from incremental ingest. ANN tools under-report on the unindexed tail until a reindex runs. Note it as a monitoring finding and hand the reindex to the sphere owner (it is a build-side operation — see the incremental-ingest path in **gds-sphere-designer**, which reindexes via `incremental_update(reindex=True)` or `finalize_incremental()`).
+- **`index_present == false` with a small population** — expected. The builder skips the IVF index below the build-time row floor; ANN tools fall back to a full scan and lose nothing. Not an actionable alert.
+
+Interpret `is_stale` as "ANN results are currently incomplete", NOT "the geometry is wrong" — the rows exist and exact-scan tools (`find_anomalies`, `explain_anomaly`) see them; only the approximate-neighbour tools are affected.
 
 ---
 
@@ -165,6 +185,39 @@ agent narrative ("X anomalous on `_count_above_threshold` = +Nσ") does
 NOT mean the same edge regime as in the previous epoch. Worth flagging
 when it shows up in monitoring alongside a non-zero `overall_drift_rms`.
 
+### Verdict composer — `calibration_drift_report`
+
+`compare_calibrations` returns the raw per-dimension μ/σ/θ drift table but leaves
+the "is this drift large enough to distrust cross-epoch reasoning?" call to the
+agent. For a monitoring sweep, prefer `calibration_drift_report(pattern_id)` — it
+wraps `compare_calibrations` and adds a `drift_verdict` over `overall_drift_rms`
+plus a routing recommendation:
+
+```
+calibration_drift_report(pattern_id)  # default args = latest vs previous epoch
+-> drift_verdict: "stable" | "moderate" | "significant"
+-> top_drifted, interpretation, recommended_next_steps
+```
+
+Monitoring routing by verdict:
+
+- **`stable`** — the coordinate system held; a "still anomalous" / "no longer
+  anomalous" comparison across these epochs reflects the entity, not
+  recalibration. Cross-epoch entity verdicts are safe to report.
+- **`moderate`** — some dimensions moved materially; treat cross-epoch verdicts
+  on the `top_drifted` dimensions with caution before escalating an entity.
+- **`significant`** — the coordinate system shifted substantially; a cross-epoch
+  "no longer anomalous" claim is dominated by recalibration. Do NOT compare
+  entity verdicts as if θ were fixed. Use `decompose_drift(entity, pattern)` to
+  split per-entity change into intrinsic (entity moved) vs extrinsic
+  (population recalibrated around it), and pair with
+  `find_calibration_influencers` (see end of this skill) to find which entities
+  drove the shift.
+
+Drop to raw `compare_calibrations` only when you need the full per-dimension
+table without the interpreted verdict, or to compare two specific non-adjacent
+epochs (`calibration_a` / `calibration_b`).
+
 ---
 
 ## Threshold sensitivity at a glance
@@ -204,10 +257,33 @@ Quick triage rules:
 - **Empty `theta_sensitivity_summary`**: the sphere predates the
   diagnostic. Trigger a rebuild before relying on this surface.
 
-The full per-percentile sweep lives behind `theta_sensitivity(pattern_id)`
-— use that when the summary flags a non-trivial structure (cliffs > 0
-or stable_band_length < 6) and you need the exact ratios to decide on
-a safe recalibration move.
+When the `theta_sensitivity_summary` block flags a non-trivial structure
+(cliffs > 0 or stable_band_length < 6) and you are about to propose a
+recalibration move, prefer the verdict composer over the raw sweep:
+
+```
+theta_sensitivity_report(pattern_id)
+-> recalibration_safety: "safe" | "caution" | "unsafe"
+-> n_cliffs, stable_band, cliffs, theta_sensitivity (per-percentile sweep)
+-> interpretation, recommended_next_steps
+```
+
+`theta_sensitivity_report` wraps `theta_sensitivity` and reads the band / cliff
+structure into a single `recalibration_safety` verdict, so you do not have to
+interpret the raw band/cliff lists yourself:
+
+- **`safe`** — a contiguous stable band exists and no cliffs; moving
+  `anomaly_percentile` shifts the threshold smoothly. Recalibration anywhere in
+  the swept range is safe.
+- **`caution`** — a stable band exists but cliffs sit outside it; keep
+  `anomaly_percentile` inside `stable_band` and avoid the boundaries in
+  `cliffs[]`.
+- **`unsafe`** — no stable band; every percentile step shifts θ materially
+  (heavy-tail region). Do not recalibrate by percentile without re-measuring
+  the flagged population.
+
+Use raw `theta_sensitivity(pattern_id)` directly only when you want the
+per-percentile ratios without the interpreted verdict.
 
 ---
 

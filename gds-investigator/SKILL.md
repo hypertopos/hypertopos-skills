@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Requires hypertopos MCP server. Designed for Claude Code and compatible agents.
 metadata:
   author: Karol Kędzia
-  version: 0.7.1
+  version: 0.8.0
   mcp-server: hypertopos
 ---
 
@@ -335,6 +335,43 @@ Two flags fire independently:
 `explain_anomaly.top_dimensions` for the same polygon — both surfaces
 route through the same per-dim contribution primitive. If they disagree
 on a real call, that's a bug to report.
+
+**Pre-case certainty gate — `assess_anomaly_certainty`.** Where
+`reliability_flags` reports the two soft-hit flags individually, the
+`assess_anomaly_certainty(primary_key, pattern_id)` composer rolls them up with
+FDR-alpha stability, calibration staleness, and cross-pattern consistency into a
+single `certainty_verdict` — the one-call gate to run before opening an
+investigation on a single-detector hit.
+
+```
+assess_anomaly_certainty(primary_key, pattern_id)
+-> certainty_verdict: "high" | "moderate" | "low" | "contested"
+-> certainty_score, conformal_p, signed_confidence,
+   stability_across_alphas, reliability_flags
+   (single_dim_driven, near_data_boundary, calibration_stale),
+   cross_pattern_consistency, recommended_next_steps
+```
+
+`certainty_verdict` is certainty about the CLASSIFICATION, not about anomaly
+status — a confidently-normal entity scores `"high"` too. Gate routing:
+
+- **`high`** — stable across the swept FDR alphas, not single-dim-driven, not
+  near the data boundary, calibration fresh. Open the case and run the full
+  root-cause chain.
+- **`moderate`** — partial stability; investigate but keep the FP possibility
+  open. Corroborate with one more detector before classifying CONFIRMED.
+- **`low`** — fragile (one-alpha hit or boundary-adjacent). Treat as a soft hit;
+  do not open a formal case on this alone.
+- **`contested`** — the calibrated `conformal_p` disagrees with the stored
+  anomaly flag, or the entity is both single-dim-driven and near-boundary.
+  Highest FP risk: resolve the conflict (re-read `explain_anomaly`, inspect
+  `near_data_boundary`, check `cross_pattern_consistency`) before deciding.
+
+Use this as the gate that feeds the CONFIRMED / SUSPECTED / FALSE POSITIVE
+classification later in the report: `high` + multi-source ⟹ CONFIRMED candidate;
+`contested` ⟹ FALSE POSITIVE candidate until the conflict resolves. Pair with
+`find_diverse_explanations` when the verdict is `contested` because
+`single_dim_driven` fired.
 
 **Multi-hypothesis investigation**: when `explain_anomaly` shows
 `reliability_flags.single_dim_driven=True`, call

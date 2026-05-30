@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.8.0] — 2026-05-30
+
+Recipes added across skills for the new agent-correctness reports, incremental ingest, cloud-ops sphere commands, and vector-index health.
+
+### Added
+
+- `gds-monitor` — alert-response table gains a `stale_vector_index` row plus a `vector_index_health` drilldown (read via the block on `audit_pattern_dims`): how to read the unindexed fraction and route the reindex. Cross-epoch monitoring now routes `compare_calibrations` → `calibration_drift_report` (a `drift_verdict` of stable / moderate / significant) and `theta_sensitivity` → `theta_sensitivity_report` (a `recalibration_safety` verdict of safe / caution / unsafe).
+- `gds-sphere-designer` — new "Phase 5b — Incremental ingest" section covering `GDSBuilder.incremental_update` (add or change entities against existing calibration, with `recalibrate` and `reindex` options) and `finalize_incremental` for batched appends. Phase 4 gains a "CI / pre-deploy verification" section for the `hypertopos sphere validate --strict`, `hypertopos sphere health --exit-code-on-critical`, and `hypertopos sphere diff` CLI verbs.
+- `gds-fraud-investigator` — Phase 2 gains a pre-SAR triage gate using `assess_anomaly_certainty` (a `certainty_verdict` of high / moderate / low / contested) and `consensus_classification` (single-entity detector agreement) before escalation.
+- `gds-investigator` — pre-case certainty gate added: `assess_anomaly_certainty` rolls up reliability flags, FDR-alpha stability, calibration staleness, and cross-pattern consistency into one `certainty_verdict` before opening an investigation.
+- `gds-analyst` — reliability-filter step wires in `assess_anomaly_certainty` (one-call reliability rollup) and `consensus_classification` (single-entity detector consensus) before promoting a scan hit to a finding.
+
+### Changed
+
+- `gds-sphere-designer` — notes that the trajectory ANN index is skipped for patterns with too few entities, where trajectory search falls back to a fast brute-force scan.
+
 ## [0.7.3] — 2026-05-27
 
 Version-bump release for parity with sibling `hypertopos-py` and `hypertopos-mcp` 0.7.3. No skill body changes — existing skill recipes already cover the new surfaces shipped in `hypertopos-py` / `hypertopos-mcp` 0.7.3 (`audit_pattern_dims` per-dim AUROC, `chain_full_loop_summary` reliability rollup, `find_anomalies(boundary_aware=True)`, `sphere_overview.cross_pattern_discrepancy`, `passive_scan` interpretation hint, `find_similar_entities` neighbor anomaly fields, `dive_solid.trajectory_shape`, `classify_trajectory`, `community_id` graph feature, `find_calibration_influencers(auto_discover=True)`, `calibration_influencer_history`, `near_data_boundary` regime flag).
