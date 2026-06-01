@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Requires hypertopos CLI (pip install hypertopos). No live MCP session needed for design phases.
 metadata:
   author: Karol Kedzia
-  version: 0.8.0
+  version: 0.8.1
   mcp-server: hypertopos
 ---
 
@@ -710,6 +710,15 @@ pattern's geometry in place against the existing μ/σ/θ calibration. This is a
 Python API path — there is no `hypertopos sphere ingest` CLI verb; drive it
 from a short script.
 
+> **Unsupported pattern types.** `incremental_update` reconstructs geometry
+> against the *global* μ/σ/θ, so it refuses a pattern calibrated per group
+> (`group_by_property`), per cluster (`gmm_n_components`), or carrying an FDR
+> hierarchy — those need per-group / per-cluster recalibration the incremental
+> path cannot reproduce. Rebuild those with `hypertopos build` instead.
+> Separately, a single pattern cannot declare `tracked_properties` together
+> with `edge_dimensions` / `edge_dim_aggregations` (the build refuses the
+> combination); split them across two patterns.
+
 ```python
 import pyarrow as pa
 from hypertopos.builder.builder import GDSBuilder
@@ -719,7 +728,10 @@ builder = GDSBuilder(sphere_id="my_sphere", output_path="my_sphere/")
 
 # changed_entities: an Arrow table with the pattern's primary_key column plus
 # the columns the pattern's dimensions are derived from. New keys are appended;
-# existing keys are updated in place.
+# existing keys are updated in place. Every declared edge-dim-aggregation
+# ({dim}_{agg}) and event-dimension value column MUST be present — omitting one
+# now raises (it would otherwise z-score an absent 0.0 into a spurious delta and
+# corrupt the entity's anomaly geometry). Relations / prop columns may be absent.
 builder.incremental_update(
     pattern_id="entity_pattern",
     changed_entities=new_rows,        # pa.Table

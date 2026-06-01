@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.8.1] — 2026-06-01
+
+### Changed
+
+- `gds-sphere-designer` Phase 5b now documents that `incremental_update` refuses patterns calibrated per group (`group_by_property`), per cluster (`gmm_n_components`), or carrying an FDR hierarchy — those must be rebuilt rather than incrementally updated — and that `tracked_properties` cannot be combined with `edge_dimensions` / `edge_dim_aggregations` on a single pattern.
+- `gds-sphere-designer` — the incremental-ingest recipe now notes that every declared edge-dim-aggregation and event-dimension value column must be present in the `changed_entities` table (omitting one raises, rather than silently corrupting the entity's geometry); relations and prop columns may be absent.
+
 ## [0.8.0] — 2026-05-30
 
 Recipes added across skills for the new agent-correctness reports, incremental ingest, cloud-ops sphere commands, and vector-index health.
