@@ -6,8 +6,8 @@ Optional `sphere.yaml` blocks and build-time behaviors, read from the Phase 2 de
 
 The builder auto-assigns a distribution kind to each derived dimension. This
 drives per-dimension Bregman divergence scoring and per-dimension theta
-(hyper-ellipsoid boundary instead of hyper-sphere). `sphere.yaml` has no
-`kind:` key — the kind follows from how the dimension is declared:
+(hyper-ellipsoid boundary instead of hyper-sphere). The kind follows from how
+the dimension is declared; only `precomputed_dimensions` entries accept a `kind:` override:
 
 | Auto-detect rule | Assigned kind |
 |-----------------|--------------|
@@ -19,14 +19,16 @@ drives per-dimension Bregman divergence scoring and per-dimension theta
 | other `precomputed_dimensions` entry | `gaussian` |
 
 **When the auto-detected kind is wrong** — e.g. a `count` dim that is always
-0 or 1 (a binary presence flag) — compute the flag upstream as a 0/1 column on
-the entity table and declare it as a precomputed dimension with `edge_max: 1`,
-which makes it `bernoulli`:
+0 or 1 (a binary presence flag), or a count prepared upstream that would default
+to `gaussian` — compute the column on the entity table and declare it as a
+precomputed dimension, with `kind:` when the default does not fit:
 
 ```yaml
 precomputed_dimensions:
   - column: cross_border_flag   # 0/1 column prepared in the source script
     edge_max: 1                 # -> bernoulli
+  - column: n_counterparties    # count computed upstream
+    kind: poisson               # gaussian without the override
 ```
 
 **Impact on navigation:**

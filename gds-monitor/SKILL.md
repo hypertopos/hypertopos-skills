@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Requires hypertopos MCP server. Designed for Claude Code and compatible agents.
 metadata:
   author: Karol Kędzia
-  version: 0.9.0
+  version: 0.9.1
   mcp-server: hypertopos
 ---
 
@@ -350,7 +350,7 @@ Each warning carries `type`, `dim_label` and `reason` (the offending value); the
 **Pattern-level calibration auditors** — `dominant_dim_mass`, `negative_space`, and `heteroscedasticity` are sphere-design-quality signals; if they fire, raise a calibration ticket rather than chasing the entities flagged by `find_anomalies` on the affected pattern — those entities are likely noise.
 
 - **Any `dead_dim` warning**: drop the dim from the pattern, OR investigate the data source for missing values / constant column. Builder-time issue — won't fix itself on rebuild without a YAML edit.
-- **`sparse_dim` warning on a binary-like signal** (e.g. structuring flag, fraud label): make the dimension `bernoulli` (a 0/1 column declared under `precomputed_dimensions` with `edge_max: 1` — `sphere.yaml` has no `kind:` key) and read its Bregman divergence. The warning is not a bug — it's the gaussian assumption being wrong for the data shape.
+- **`sparse_dim` warning on a binary-like signal** (e.g. structuring flag, fraud label): make the dimension `bernoulli` (a 0/1 column declared under `precomputed_dimensions` with `edge_max: 1` or `kind: bernoulli`) and read its Bregman divergence. The warning is not a bug — it's the gaussian assumption being wrong for the data shape.
 - **`sparse_dim` warning on a sparse counter** (e.g. tx-count where most accounts have zero): split into `is_active` (bernoulli) + `tx_count_when_active` (poisson) dims. The single-dim representation conflates two regimes.
 - **`dominant_dim_mass` warning**: cross-check per-polygon `reliability_flags.single_dim_driven` incidence on `find_anomalies` top-N for the same pattern — pattern-level dominance ⟹ high per-polygon incidence agreement. Raise a calibration ticket; consider splitting the dominant dim into its own pattern or re-weighting via `dimension_weights` so the other dims actually contribute.
 - **`negative_space` warning**: re-declare the dim with `kind='bernoulli'` (presence/absence) or `kind='poisson'` (count), or split into a binary `is_active` dim plus a continuous `value_when_active` dim. Same remediation family as `sparse_dim` but the trigger is gaussian-declared, not empirical-distribution-shaped.
