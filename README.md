@@ -3,11 +3,11 @@
 > Business data as geometry that AI agents navigate — the investigation workflows.
 
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE)
-![Version](https://img.shields.io/badge/version-0.9.1-%235500FF.svg)
+![Version](https://img.shields.io/badge/version-0.9.2-%235500FF.svg)
 
 Install the skills into your agent, connect [hypertopos-mcp](https://github.com/hypertopos/hypertopos-mcp) to a sphere, and ask in plain language — the matching skill decides which tool to call, in which order, what the result means, and what to check next.
 
-- **Judgement, not code.** Eight Markdown skills — decision frameworks with worked examples — that an agent reads before it acts. No Python, nothing to run.
+- **Judgement, not code.** Nine Markdown skills — decision frameworks with worked examples — that an agent reads before it acts. No Python, nothing to run.
 - **Every investigation ends in a report, not a tool dump.** The skills carry a quality checklist, a report structure and anti-patterns, so a finding states its evidence, its confidence and its false-positive risk.
 - **They know the tools' edges.** Compact responses and the `omitted` map, sessions pinned to a snapshot, branches for what-if recalibration, and the parameter names a call must use.
 
@@ -16,6 +16,13 @@ Install the skills into your agent, connect [hypertopos-mcp](https://github.com/
 ```bash
 npx skills add hypertopos/hypertopos-skills     # Claude Code, Cursor, Codex, Copilot, Amp, Cline, Windsurf, …
 # or: copy the gds-*/ folders into your agent's skills directory, e.g. .claude/skills/ for Claude Code
+```
+
+In Claude Code, the repository is also a plugin marketplace, so the skills install and update as a plugin:
+
+```
+/plugin marketplace add hypertopos/hypertopos-skills
+/plugin install hypertopos-skills@hypertopos-skills
 ```
 
 Then, in your AI assistant:
@@ -27,7 +34,7 @@ check sphere health
 run an AML scan
 ```
 
-That's it. You get eight skills, each a folder with a `SKILL.md` (and `references/` where the skill carries worked examples and detail the `SKILL.md` links to):
+That's it. You get nine skills, each a folder with a `SKILL.md` (and `references/` where the skill carries worked examples and detail the `SKILL.md` links to):
 
 ```
 gds-analyst/            drives an investigation: goal, plan, delegation, report
@@ -38,12 +45,13 @@ gds-scanner/            cross-pattern, neighbour-contamination, trajectory-shape
 gds-monitor/            health checks, drift, regime changes, calibration epochs, safe recalibration
 gds-fraud-investigator/ AML and fraud: screening, per-suspect investigation, typology recipes
 gds-sphere-designer/    from a description of the data to a sphere.yaml, a build, and tuning
+gds-spark/              anomaly detection on a Spark DataFrame: roles, find_anomalies, triage, explain, score
 ```
 
 Works with Claude Code, Cursor, Codex, GitHub Copilot, Amp, Cline, Windsurf, and [other supported agents](https://skills.sh).
 
 > [!NOTE]
-> The skills need [hypertopos-mcp](https://github.com/hypertopos/hypertopos-mcp) connected to a built sphere; they call its tools and read its responses. [hypertopos](https://github.com/hypertopos/hypertopos-py) builds the sphere. `gds-sphere-designer` is the one skill that works before a sphere exists.
+> The skills need [hypertopos-mcp](https://github.com/hypertopos/hypertopos-mcp) connected to a built sphere; they call its tools and read its responses. [hypertopos](https://github.com/hypertopos/hypertopos-py) builds the sphere. `gds-sphere-designer` works before a sphere exists, and `gds-spark` works in a Spark or Databricks notebook with `hypertopos[spark]`, needing the MCP server only to hand a result to an agent.
 
 ## See it in action
 
@@ -106,11 +114,13 @@ anomaly_summary(top_pattern) -> what drives anomalies
 | [`gds-monitor`](gds-monitor/SKILL.md) | Monitoring — drift detection, regime changes, temporal health | "check sphere health", "detect drift" |
 | [`gds-fraud-investigator`](gds-fraud-investigator/SKILL.md) | AML/fraud investigation and 25 typology recipes | "detect fraud", "run AML scan" |
 | [`gds-sphere-designer`](gds-sphere-designer/SKILL.md) | End-to-end sphere design, construction, and tuning | "design a sphere", "build from my data" |
+| [`gds-spark`](gds-spark/SKILL.md) | Anomaly detection on Spark / Databricks with the one-call API | "find anomalies in this table", "score today against last month" |
 
 ## How they work together
 
 ```text
 Design:      gds-sphere-designer
+On Spark:    gds-spark  (one call on a DataFrame; hands the result to the skills below)
 Investigate: gds-analyst (drives the investigation)
                ├── gds-explorer        (orientation, profiling)
                ├── gds-investigator    (root cause, entity 360)
@@ -120,7 +130,7 @@ Investigate: gds-analyst (drives the investigation)
                └── gds-fraud-investigator  (AML/fraud domain)
 ```
 
-**gds-analyst** drives investigations — reads the task, picks the right approach, delegates to specialized skills. The other skills are the toolbox; each ends with a "Skill delegation" section naming where to hand off. **gds-sphere-designer** comes before all of them: it turns a description of the data into the `sphere.yaml` the others navigate, and tunes the patterns when detection looks wrong.
+**gds-analyst** drives investigations — reads the task, picks the right approach, delegates to specialized skills. The other skills are the toolbox; each ends with a "Skill delegation" section naming where to hand off. **gds-sphere-designer** comes before all of them: it turns a description of the data into the `sphere.yaml` the others navigate, and tunes the patterns when detection looks wrong. **gds-spark** is the entry point when the data lives in Spark: it runs the one-call API in a notebook and hands the flagged entities to the MCP server and the investigation skills.
 
 ## Common prompts
 
@@ -181,6 +191,7 @@ Investigate: gds-analyst (drives the investigation)
 | `gds-scanner` | FDR control, diverse selection and confidence filtering · Choosing which scans to run · Alias anomaly scan · Cross-pattern discrepancy · Geometric neighbor contamination · Temporal trajectory shape · Population segment shift |
 | `gds-monitor` | Quick health check · Responding to alerts · Event rate divergence · Windowed volume comparison · Drift detection · Compare calibration epochs · Safe recalibration via branch · Threshold sensitivity · Dim-quality warnings · Regime changes · Emerging anomalies · Handing off · Anti-patterns |
 | `gds-fraud-investigator` | Core principle · Prerequisites — edge table check · Threshold convention · Phase 1 Screening · Phase 2 Investigation (per suspect) · Phase 3 Typology detection · Per-pattern guide · Edge table recipes · Investigation memory · Failure guards · Decision scoring · Common pitfalls · Aggregated edge dims · Declarative motif cheatsheets |
+| `gds-spark` | Map the columns to roles · Decide on group_by · Run it · Read the result (triage) · Explain an entity · Score new data · Hand the result to an agent · Anti-patterns |
 | `gds-sphere-designer` | Core principle · Phase 1 Discover · Phase 2 Design · Phase 3 Configure · Phase 4 Build + verify · Phase 5 Iterate · Calibration recommendations · Troubleshooting · Unsupervised ceiling · Examples |
 
 Every skill also carries a "When things don't work" or "Troubleshooting" section and a "Skill delegation" section.

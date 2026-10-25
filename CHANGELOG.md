@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.9.2] — 2026-10-25
+
+### Added
+
+- `gds-spark`: a skill for anomaly detection on Spark and Databricks with the one-call API: mapping a DataFrame's columns to roles, choosing `group_by`, reading and triaging the result, `explain`, scoring new data against a frozen calibration, and handing the result to the MCP server and the investigation skills.
+- The README documents installing the skills as a Claude Code plugin from this repository's marketplace (`/plugin marketplace add hypertopos/hypertopos-skills`, then `/plugin install hypertopos-skills@hypertopos-skills`).
+
 ## [0.9.1] — 2026-10-25
 
 ### Changed
