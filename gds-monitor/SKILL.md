@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Requires hypertopos MCP server. Designed for Claude Code and compatible agents.
 metadata:
   author: Karol Kędzia
-  version: 0.8.0
+  version: 0.9.0
   mcp-server: hypertopos
 ---
 
@@ -25,6 +25,14 @@ For concrete tool output examples, see [references/examples.md](references/examp
 
 ---
 
+## Monitoring checklist
+
+- [ ] On a long-lived session, `snapshot.stale` checked and the sphere reopened when stale
+- [ ] `sphere_overview` and `check_alerts` run; every alert answered
+- [ ] `find_regime_changes` and `find_drifting_entities` run even when alerts are clean
+- [ ] Dim-quality warnings reviewed
+- [ ] Findings handed off to the right skill
+
 ## Quick health check
 
 Two calls tell you whether anything needs attention:
@@ -43,13 +51,22 @@ regime changes and drift detect behavioral shifts that are structurally valid
 but operationally significant. Skipping temporal tools when alerts are clean
 is the most common monitoring gap.
 
+**Re-checks in a long-lived session read a pinned snapshot.** A session reads
+the sphere as it was when `open_sphere` ran; ingests, rebuilds and
+recalibrations made by other sessions or processes afterwards stay invisible until you
+reopen. Before a periodic re-check, call `get_session_stats()` and read its
+`snapshot` block: `snapshot.stale == true` means a newer sphere state exists —
+call `open_sphere(path)` to read it, then run the health check. The session's
+own `recalibrate` is visible at once, with no reopen. (`snapshot.stale` is about
+sphere state; `vector_index_health.is_stale` below is about ANN index coverage.)
+
 ## Responding to alerts
 
 | Alert | What it means and what to do |
 |---|---|
 | `anomaly_rate_spike` | `anomaly_summary(pattern_id)` then `contrast_populations({anomaly: true})` — what spiked? If edge table available: `degree_velocity` on top spikers to check connection rate acceleration. |
 | `population_size_shock` | `get_sphere_info()` — compare entity counts — data ingestion issue? |
-| `theta_miscalibration` | `recalibrate(pattern_id)` then re-check `sphere_overview()` |
+| `theta_miscalibration` | `recalibrate(pattern_id)` then re-check `sphere_overview()`. The recalibration records a new calibration epoch, so `compare_calibrations(pattern_id)` shows what moved; to try it without touching main, use the branch workflow below |
 | `regime_changepoint` | `find_regime_changes(pattern_id)` then `compare_time_windows()` for flagged period |
 | `calibration_drift` | Note for next rebuild. Current results still usable. |
 | `stale_vector_index` | Incrementally-appended geometry rows sit outside the ANN (IVF) index, so trajectory / similarity tools (`detect_trajectory_anomaly`, `find_similar_entities`, `find_drifting_similar`) silently miss them. MEDIUM severity. Drill down with the `vector_index_health` block (see below) to read the unindexed fraction, then trigger a reindex on the builder side. |
@@ -71,7 +88,7 @@ Triage:
 - **`is_stale == true`** — the `recommendation` string names the fix; an unindexed run accumulated from incremental ingest. ANN tools under-report on the unindexed tail until a reindex runs. Note it as a monitoring finding and hand the reindex to the sphere owner (it is a build-side operation — see the incremental-ingest path in **gds-sphere-designer**, which reindexes via `incremental_update(reindex=True)` or `finalize_incremental()`).
 - **`index_present == false` with a small population** — expected. The builder skips the IVF index below the build-time row floor; ANN tools fall back to a full scan and lose nothing. Not an actionable alert.
 
-Interpret `is_stale` as "ANN results are currently incomplete", NOT "the geometry is wrong" — the rows exist and exact-scan tools (`find_anomalies`, `explain_anomaly`) see them; only the approximate-neighbour tools are affected.
+Interpret `is_stale` as "ANN results are incomplete", NOT "the geometry is wrong" — the rows exist and exact-scan tools (`find_anomalies`, `explain_anomaly`) see them; only the approximate-neighbour tools are affected.
 
 ---
 
@@ -100,9 +117,9 @@ Pick periods from sphere context (recent batch window, pre/post incident, quarte
 
 ```
 aggregate(event_pattern, group_by_line=anchor_line, metric="count",
-          time_from=period_a_start, time_to=period_a_end, limit=20)
+          time_from=period_a_start, time_to=period_a_end, top_n=20)
 aggregate(event_pattern, group_by_line=anchor_line, metric="count",
-          time_from=period_b_start, time_to=period_b_end, limit=20)
+          time_from=period_b_start, time_to=period_b_end, top_n=20)
 ```
 
 Entities with 2x+ count increase in period B are burst candidates (order splitting,
@@ -123,7 +140,7 @@ find_drifting_entities(pattern_id, top_n=10, forecast_horizon=3)
 - Cluster of drifters in same direction = systemic population shift
 - `forecast_anomaly=true` + `reliability=high` = early warning
 
-**Drift direction triage.** `find_drifting_entities` now returns `drift_direction` per entity. On a monitoring sweep, triage thus: `deteriorating` (highest priority, entities moving away from the population centre — trending toward anomaly), `neutral` (lateral motion, monitor), `normalizing` (lowest priority, already self-correcting). Filter the top-N list by `drift_direction == "deteriorating"` before escalating, otherwise alerts include entities that are actively recovering.
+**Drift direction triage.** `find_drifting_entities` now returns `drift_direction` per entity. On a monitoring sweep, triage thus: `deteriorating` (highest priority, entities moving away from the population centre — trending toward anomaly), `neutral` (lateral motion, monitor), `normalizing` (lowest priority, already self-correcting). Filter the top-N list by `drift_direction == "deteriorating"` before escalating, otherwise alerts include entities that are actively recovering. Windows without events are left out of the trajectory (`num_inactive_slices`), so a busy-then-silent entity has no drift — look for it with `find_anomalies`, not here.
 
 For top drifters, `dive_solid(key, pattern_id)` reveals whether it is
 gradual drift or a sudden jump. If edge table available: `degree_velocity(key, pattern_id)` — accelerating degree alongside geometric displacement = strong behavioral change confirmation.
@@ -165,12 +182,12 @@ displacement is dominated by a different high-variance dimension.
 
 ## Compare calibration epochs to inspect drift
 
-After a builder rebuild, `compare_calibrations(pattern_id)` (default args)
+After a builder rebuild or a `recalibrate` (each writes a new epoch), `compare_calibrations(pattern_id)` (default args)
 returns the drift between the two most recent epochs. Use `top_n=N` to
 limit the ranked dimension list, `verbose=True` to also get the full
 per-dimension breakdown, or pass explicit `v_from` / `v_to` to compare any
-two epochs the sphere has on disk (`list_calibration_versions(pid)` returns
-what's available).
+two epochs the sphere has on disk (epoch integers resolved automatically;
+omit both to default to the most recent pair).
 
 Example query: "Has the population shifted since the last rebuild?" →
 `compare_calibrations("account_pattern")` → check `overall_drift_rms`
@@ -217,6 +234,34 @@ Monitoring routing by verdict:
 Drop to raw `compare_calibrations` only when you need the full per-dimension
 table without the interpreted verdict, or to compare two specific non-adjacent
 epochs (`calibration_a` / `calibration_b`).
+
+---
+
+## Safe recalibration via branch
+
+When proposing a recalibration — especially after excluding calibration influencers — run it on an isolated branch first. This leaves main untouched until you confirm the result is the intended calibration.
+
+```
+# 1. Recalibrate on a branch (optionally excluding known influencers)
+recalibrate(pattern_id, branch="my_branch", exclude_keys=["KEY1", "KEY2"])
+
+# 2. Compare the branch to main (from the main session)
+compare_branches(pattern_id, branch="my_branch")
+  -> anomalies_from/to, flipped_in/flipped_out, flipped_in_top/flipped_out_top,
+     jaccard, top_movers, calibration_drift
+#    To drill into the branch, open_sphere(path, branch="my_branch"); reopen
+#    main with open_sphere(path) before promoting or deleting it.
+
+# 3a. Calibration looks correct — promote to main (replays recipes, verifies, deletes branch)
+manage_branch(action="promote", name="my_branch")
+
+# 3b. Calibration looks wrong — discard the branch
+manage_branch(action="delete", name="my_branch")
+```
+
+Use `compare_branches` to answer: which entities flipped anomaly status (`flipped_in_top` / `flipped_out_top` name the ones furthest past the threshold), how large is the Jaccard overlap between anomaly sets, and how far the fit moved (`calibration_drift.overall_drift_rms`, in σ units — the scale `calibration_drift_report` grades as stable / moderate / significant). Use `manage_branch(action="list")` to see all open branches before starting a new one.
+
+`promote` refuses when main has moved since the branch was created, and aborts (restoring main) if the replayed fit does not match the branch exactly — so it is safe to call without manual verification.
 
 ---
 
@@ -300,18 +345,18 @@ per-percentile ratios without the interpreted verdict.
 | `heteroscedasticity` | pattern-level: Brown-Forsythe (median-centred Levene) `p < 0.01` on `delta_norm` partitioned by `group_by_property` | global θ assumption violated for this pattern; `delta_norm` variance differs sharply across the levels of the grouping variable, so a single global threshold produces unequal false-positive rates per group |
 | `non_normal_dim` | per-dim: Shapiro-Wilk (N ≤ 5000) or Kolmogorov-Smirnov (larger N) `p < 0.01` on a `kind='gaussian'` dim | gaussian z-score is wrong — empirical distribution is heavy-tailed, so `(x − μ) / σ` produces unequal false-positive rates per quantile of the dim; mu/sigma are stable but the percentile semantics are not |
 
-Each warning carries `dim_label`, `reason` (the offending value), and `advice` (concrete remediation); `dominant_dim_mass` and `heteroscedasticity` additionally carry `evidence_value` (the firing metric — share for dominant_dim_mass, p-value for heteroscedasticity) + `threshold` (the cutoff) so the agent can rank patterns by severity. Note: the `heteroscedasticity` warning's `dim_label` is the GROUPING VARIABLE name (a categorical line property), not a δ-dim — unlike the per-dim auditors. Triage rules:
+Each warning carries `type`, `dim_label` and `reason` (the offending value); the concrete remediation for each `type` is in the response's top-level `advice_by_warning_type[type]`. `dominant_dim_mass` and `heteroscedasticity` additionally carry `evidence_value` (the firing metric — share for dominant_dim_mass, p-value for heteroscedasticity) + `threshold` (the cutoff) so the agent can rank patterns by severity. Note: the `heteroscedasticity` warning's `dim_label` is the GROUPING VARIABLE name (a categorical line property), not a δ-dim — unlike the per-dim auditors. Triage rules:
 
 **Pattern-level calibration auditors** — `dominant_dim_mass`, `negative_space`, and `heteroscedasticity` are sphere-design-quality signals; if they fire, raise a calibration ticket rather than chasing the entities flagged by `find_anomalies` on the affected pattern — those entities are likely noise.
 
 - **Any `dead_dim` warning**: drop the dim from the pattern, OR investigate the data source for missing values / constant column. Builder-time issue — won't fix itself on rebuild without a YAML edit.
-- **`sparse_dim` warning on a binary-like signal** (e.g. structuring flag, fraud label): switch to Bregman with `kind: bernoulli`. The warning is not a bug — it's the gaussian assumption being wrong for the data shape.
+- **`sparse_dim` warning on a binary-like signal** (e.g. structuring flag, fraud label): make the dimension `bernoulli` (a 0/1 column declared under `precomputed_dimensions` with `edge_max: 1` — `sphere.yaml` has no `kind:` key) and read its Bregman divergence. The warning is not a bug — it's the gaussian assumption being wrong for the data shape.
 - **`sparse_dim` warning on a sparse counter** (e.g. tx-count where most accounts have zero): split into `is_active` (bernoulli) + `tx_count_when_active` (poisson) dims. The single-dim representation conflates two regimes.
 - **`dominant_dim_mass` warning**: cross-check per-polygon `reliability_flags.single_dim_driven` incidence on `find_anomalies` top-N for the same pattern — pattern-level dominance ⟹ high per-polygon incidence agreement. Raise a calibration ticket; consider splitting the dominant dim into its own pattern or re-weighting via `dimension_weights` so the other dims actually contribute.
 - **`negative_space` warning**: re-declare the dim with `kind='bernoulli'` (presence/absence) or `kind='poisson'` (count), or split into a binary `is_active` dim plus a continuous `value_when_active` dim. Same remediation family as `sparse_dim` but the trigger is gaussian-declared, not empirical-distribution-shaped.
 - **`heteroscedasticity` warning**: per-group θ calibration is statistically warranted on the named grouping — the pattern already carries it via `group_by_property`, so the warning is confirmation, not a prescription for new work. If per-group θ is undesirable downstream (e.g. cross-group comparison of anomaly scores), apply a variance-stabilizing transform — `log1p` on `delta_norm` before thresholding — to make scores comparable across groups. Re-check after rebuild: variance-stabilizing should push the Levene p-value back above 0.01.
 - **`non_normal_dim` warning**: the empirical distribution of a gaussian-declared dim is heavy-tailed — z-score percentiles are unstable. Remediation in priority order: (a) re-declare kind as `'poisson'` (counts) or `'bernoulli'` (binary) if the data shape fits; (b) apply variance-stabilizing transform in the column source script (`log1p` for skewed positive, `sqrt` for right-skewed) and rebuild; (c) accept the warning if the dim is rarely top-of-rank — non-normal dims rarely dominate `delta_norm` rankings on their own. Composes with `negative_space`: if `negative_space` already fires on the same dim, `non_normal_dim` is suppressed (the kind itself is the bug, not the empirical departure).
-- **No `dim_quality_warnings` block**: pattern passed all five checks. Don't infer "perfectly healthy" — the warnings only catch the five specific silent-failure modes; other quality issues (correlated dims, stale data, drifted calibration) need separate diagnostics.
+- **No `dim_quality_warnings` block**: pattern passed all six checks. Don't infer "perfectly healthy" — the warnings only catch the six specific silent-failure modes; other quality issues (correlated dims, stale data, drifted calibration) need separate diagnostics.
 
 ---
 
@@ -372,6 +417,9 @@ Monitor flags, investigator digs. When you find:
 - **Tool returns empty results** — try different parameters, wider sample,
   or a different pattern. Check that the pattern has temporal data.
 - **Tool errors** — check pattern_id and version, verify sphere is open.
+  An unknown parameter name is rejected; the error suggests the closest
+  declared name when there is one ("did you mean 'top_n'?") — fix the
+  name instead of dropping the argument.
   If the error persists, report it rather than retrying in a loop.
 - **No anomalies found** — not every sphere has every anomaly type.
   Report "no signal detected" as a valid finding.

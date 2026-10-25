@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Requires hypertopos CLI (pip install hypertopos). No live MCP session needed for design phases.
 metadata:
   author: Karol Kedzia
-  version: 0.8.1
+  version: 0.9.0
   mcp-server: hypertopos
 ---
 
@@ -22,6 +22,20 @@ Cross-line composite scoring can close the remaining gap.
 
 **The agent writes the YAML, not the user.** Ask questions about the data, generate
 `sphere.yaml`, build, verify. The user's job is to answer questions and approve.
+
+---
+
+## Workflow checklist
+
+Copy this list and tick it off while working:
+
+- [ ] Phase 1: every table classified (anchor / event / lookup), keys and FKs confirmed
+- [ ] Phase 2: one concern per pattern, 3-6 dims each, isolated entity line where needed
+- [ ] Phase 3: `description` set on the sphere, every line and every pattern
+- [ ] Phase 4: fast build (`--no-chains --no-temporal`) verified before temporal and chains
+- [ ] Phase 4: anomaly rate near target, calibration health good, `profiling_alerts` reviewed
+- [ ] Phase 4: `hypertopos sphere validate --strict` passes
+- [ ] Phase 5: per-pattern recall checked against ground truth when labels exist
 
 ---
 
@@ -217,279 +231,23 @@ top anomalies. If one dim contributes >80% of delta_norm across most
 anomalies, remove or isolate it. For temporal, isolate relational dims
 (count_distinct, diversity) into their own pattern.
 
-### Dimension kind tags
+### Build-time feature blocks
 
-The builder auto-assigns a distribution kind to each derived dimension. This
-drives per-dimension Bregman divergence scoring and per-dimension theta
-(hyper-ellipsoid boundary instead of hyper-sphere). In most cases the
-auto-detect is correct; override only when the auto-detect is wrong:
+These `sphere.yaml` features are described in [references/yaml-features.md](references/yaml-features.md).
+Read the matching section when the design needs one of them:
 
-| Auto-detect rule | Assigned kind |
-|-----------------|--------------|
-| Binary FK (`edge_max=1`) | `bernoulli` |
-| `count`, `count_distinct`, window burst | `poisson` |
-| `sum`, `avg`, `std`, `max` | `gaussian` |
-| Entity property (fill indicator) | `bernoulli` |
-
-**When to override:**
-- A `count` dim that is always 0 or 1 (binary presence flag) → force `bernoulli`
-- A `sum` dim that represents event occurrence (never fractional) → consider `poisson`
-- A precomputed dim from an external system whose distribution you know → set explicitly
-
-Override in YAML:
-```yaml
-derived_dimensions:
-  - from_pattern: event_pattern
-    features:
-      - cross_border_flag: count_distinct:country  # auto: poisson
-        kind: bernoulli                             # override: binary presence
-```
-
-**Impact on navigation:**
-- `bernoulli` dims: `metric="Linf"` in `find_anomalies` catches single-flag
-  deviations that L2 norm dilutes. Recommend Linf for patterns with 4+ bernoulli dims.
-- `poisson` dims: anomaly = count structure deviation (structuring, burst). Bregman
-  divergence is more sensitive than Euclidean for count data at low counts.
-- `gaussian` dims: standard behavior. Bregman ≈ squared distance for well-calibrated
-  gaussians — no practical difference from prior behavior for these dims.
-
-For mixed-kind patterns, use `find_anomalies(metric="bregman")` to rank by
-distribution-aware scoring instead of L2. Check `dimension_kinds` in
-`sphere_overview` after build to verify assignments.
-
-### Bootstrap confidence tuning
-
-Each pattern emits `anomaly_confidence` (0–1) per entity for populations <= 50K.
-This reflects bootstrap stability: how consistently the entity is flagged across
-resampled populations. The number of resamples is controlled by `bootstrap_iterations`
-in YAML (default 200):
-
-```yaml
-patterns:
-  entity_pattern:
-    type: anchor
-    entity_line: entities
-    bootstrap_iterations: 200   # default — good balance of stability vs build time
-```
-
-**When to change:**
-- `bootstrap_iterations: 0` — disable bootstrap entirely. Use during development
-  iteration (fast builds) or when the pattern uses `group_by_property` / `use_mahalanobis`
-  (confidence is not emitted for those anyway).
-- `bootstrap_iterations: 50` — faster builds, rougher confidence estimates. Acceptable
-  for exploratory spheres where you only need coarse stable/unstable classification.
-- `bootstrap_iterations: 500` — smoother confidence, recommended for production spheres
-  where `min_confidence` is used as an alert threshold. Build time scales linearly.
-
-**Note:** `anomaly_confidence` is not computed for `group_by_property` patterns (per-cohort
-calibration) or `use_mahalanobis` patterns. It is also skipped when population > 50K — use
-`conformal_p` for large populations instead.
+- **Dimension kind tags** — how each dim gets `bernoulli` / `poisson` / `gaussian`, and how to fix a wrong kind.
+- **Bootstrap confidence tuning** — `bootstrap_iterations` and when to change it.
+- **Generalized dimension blocks (g/t/s)** — `geo_properties`, `metric_properties`, `semantic_dim`.
+- **Label-aware calibration** — the top-level `label_audit:` block.
+- **Declarative compliance rules** — `conformance_rules:` on a pattern.
+- **Edge table design** — when an edge table pays off, explicit `edge_table` config, anti-patterns.
+- **Aliases** — population segments as cutting planes.
 
 ### Advanced features
 
 AML-specific features (precomputed dims, graph features, chain lines, Mahalanobis)
 are documented in [references/advanced-features.md](references/advanced-features.md).
-
-### Generalized dimension blocks (g/t/s)
-
-Three optional dimension block types enrich the shape vector beyond relational counts:
-
-| Block | YAML key | Normalization | Use case |
-|-------|----------|---------------|----------|
-| **g** (geographic) | `geo_properties: [lat, lon]` | mu/sigma | Spatial patterns |
-| **t** (metric) | `metric_properties: [balance, credit_limit]` | mu/sigma | Numeric entity attributes |
-| **s** (semantic) | `semantic_dim: {columns: [emb], n_components: 8}` | PCA + mu/sigma | Embedding reduction |
-
-All optional. Dimension names are prefixed (`g:lat`, `t:balance`, `s:pc0`) in
-`explain_anomaly` output. Columns must exist on the entity line's source data.
-
-```yaml
-patterns:
-  account_pattern:
-    type: anchor
-    entity_line: accounts
-    relations: auto
-    metric_properties:
-      - balance
-      - credit_limit
-    geo_properties:
-      - branch_lat
-      - branch_lon
-```
-
-When to use: entity has numeric attributes (balance, age, rating) or spatial
-coordinates that should influence anomaly detection. Without these blocks, the
-shape vector only captures relational structure (who is connected to whom).
-
-### Label-aware calibration (`label_audit:`)
-
-When the entity line carries a binary outcome column (e.g. `is_laundering`,
-`is_fraud`, `default_flag`), declare a top-level `label_audit:` block to
-unlock class-conditioned per-dim calibration. Build with the
-`--label-aware-calibration` flag to activate; the builder runs
-`engine.calibration_label_aware.calibrate_label_aware` per listed pattern
-and persists `{mu_pos, sigma_pos, mu_neg, sigma_neg, direction}` per dim
-plus a unit Fisher LDA direction vector onto `Pattern.label_aware_calibration`.
-Sphere format stamps `3.1` when the block is declared; legacy 3.0 spheres
-load unchanged.
-
-```yaml
-label_audit:
-  label_column: is_laundering        # binary column on the entity line
-  label_positive_value: 1            # value treated as the positive class
-  patterns:
-    - tx_pattern                     # patterns to calibrate (event or anchor)
-```
-
-What this unlocks downstream:
-- `audit_pattern_dims(pattern_id, top_k=10)` returns the full-field path —
-  per-dim Cohen's d separation + Fisher direction component +
-  `recommended_action` ∈ {keep, split, drop_low_separation,
-  investigate_drift, kind_mismatch_review}. Without the block the tool
-  returns a fallback shape with raw mu/sigma only.
-- `delta_norm_signed` Lance column populates with the per-polygon
-  projection onto the Fisher LDA direction (positive ⟹ pushed toward
-  positive-labelled centroid, negative ⟹ toward the other class).
-  All-null on patterns without label-aware calibration.
-
-The label column must be a column on the patterns' entity_line (for
-event patterns: the event line itself; for anchor patterns: a column on
-the anchor line). The block validates pattern names against the
-`patterns:` registry; an unknown pattern fails the build.
-
-Use when: the sphere has a ground-truth label that an investigator
-would want to "show me dims the positive class deviates on". Skip when
-no label column exists — the standard mu/sigma calibration path is
-already sufficient.
-
-### Declarative compliance rules (`conformance_rules:`)
-
-Attach human-authored rules to a pattern in `sphere.yaml` so the builder
-materializes a per-pattern violations table at build time. Independent
-from `delta_norm` anomaly flags — an entity can be one, the other, or
-both. Query the result via `find_conformance_violations(pattern_id,
-rule_id, severity_min, top_n)` at runtime. AML adoption surface for
-SAR-narrative composition: cite a broken rule by `rule_id`, attach
-geometric explanation as supporting evidence.
-
-```yaml
-patterns:
-  account_pattern:
-    type: anchor
-    entity_line: accounts
-    conformance_rules:
-      - rule_id: high_risk_kyc_missing
-        severity: high
-        description: "High-risk client without KYC complete"
-        violates_when:
-          op: and
-          terms:
-            - op: "=="
-              prop: risk_band
-              value: high
-            - op: "!="
-              prop: kyc_status
-              value: complete
-      - rule_id: cross_border_no_sanctions_check
-        severity: critical
-        violates_when:
-          op: and
-          terms:
-            - op: "=="
-              prop: cross_border_flag
-              value: true
-            - op: "in"
-              prop: sanctions_check_status
-              value: ["not_run", "expired"]
-```
-
-Predicate AST language: logical `and` / `or` / `not` over comparison
-leaves `==` / `!=` / `<` / `<=` / `>` / `>=` / `in`. `prop` resolves to
-a column on the pattern's points table. Severity is one of `low` /
-`medium` / `high` / `critical`. Builder compiles each predicate to a
-PyArrow `compute.Expression` (no `eval()`), evaluates row-wise, and
-persists `(primary_key, rule_id, severity)` triples to
-`_gds_meta/conformance/violations/{pattern_id}/v={N}.lance` alongside
-`rule_set_hash` (rule changes invalidate the sidecar on next rebuild).
-
-### Edge table design
-
-The edge table stores per-event from/to relationships, enabling runtime graph
-traversal (`find_geometric_path`, `discover_chains`, `edge_stats`) without
-pre-built chain lines.
-
-**When edge table makes sense:**
-
-- Event pattern with from/to FK structure to the same anchor line
-  (account-to-account, entity-to-entity)
-- Sparse graph (avg degree < 100) -- dense graphs produce too many paths
-  and BFS becomes expensive
-- Investigation use case: "how are these two entities connected?"
-- AML/fraud domains: chain discovery, path tracing, counterparty analysis
-
-**When edge table does NOT make sense:**
-
-- Anchor patterns -- no from/to structure, nothing to emit
-- Event patterns where relations point to different anchor lines without
-  a shared entity type (e.g. order connects customer and product -- no
-  entity-to-entity graph)
-- Dense graphs with very high average degree per node (few unique nodes,
-  many edges each) -- produces unusable path explosion
-- When you only need aggregate features -- use `graph_features` instead,
-  which computes in_degree/out_degree/reciprocity without storing edges
-
-**Auto-detect vs explicit config:**
-
-The builder auto-detects edge table candidates when an event pattern has
-2+ FK relations to the same anchor line, or when `graph_features` is
-configured for the same event line. This covers the common case
-(transactions with from_account/to_account).
-
-Use explicit `edge_table` config when:
-- Column names don't match auto-detect heuristics
-- You want specific `timestamp_col` or `amount_col` for temporal BFS
-  and amount-weighted scoring
-
-```yaml
-patterns:
-  tx_pattern:
-    edge_table:
-      from_col: sender_id
-      to_col: receiver_id
-      timestamp_col: tx_date    # enables temporal BFS in discover_chains
-      amount_col: amount        # enables amount-weighted path scoring
-```
-
-Skip edge table emission entirely with `--no-edges` CLI flag during fast
-dev builds (`hypertopos build --no-edges --no-chains --no-temporal`).
-
-**Coexistence with chain_lines:**
-
-Edge table and `chain_lines` serve different purposes and can coexist:
-- **Edge table** -- runtime per-entity investigation (BFS from a specific
-  entity, interactive path finding)
-- **chain_lines** -- pre-built population-wide chain geometry (pattern
-  statistics, anomaly detection on chain properties)
-
-Use both when you need population-level chain anomaly detection AND
-per-entity interactive investigation.
-
-**Timestamp and amount columns:**
-
-- `timestamp_col` must be Arrow timestamp or parseable string. Without it,
-  temporal BFS (`discover_chains` with `time_window_hours`) will not work,
-  but graph traversal (`find_geometric_path`) still works.
-- `amount_col` enables amount-weighted path scoring and flow analysis.
-  Without it, paths are scored by geometric coherence only.
-
-**Anti-patterns:**
-
-| Anti-pattern | Why it fails | Fix |
-|-------------|-------------|-----|
-| Edge table on anchor pattern | No from/to structure -- nothing to emit | Only configure on event patterns with 2+ FKs to same anchor |
-| `find_geometric_path` on dense graph (avg_degree > 100) | Path explosion, slow BFS, too many results | Check `edge_stats` first; use `graph_features` for aggregate metrics instead |
-| Relying on auto-detect for complex schemas | Auto-detect picks first two FKs to same line -- may be wrong | Use explicit `edge_table` config with correct column names |
-| Skipping `edge_stats` before path queries | No awareness of graph density or data quality | Always run `edge_stats` after build to verify avg_degree and row counts |
 
 ### Common patterns by domain
 
@@ -582,24 +340,6 @@ temporal:
     window: 90d
 ```
 
-### Aliases (population segments)
-
-Aliases partition entities by a hyperplane in delta-space:
-
-```yaml
-aliases:
-  high_spenders:
-    base_pattern: customer_pattern
-    cutting_plane:
-      dimension: _d_total_spend      # delta-prefixed name
-      threshold: 2.0                  # entities with delta[dim] >= threshold
-    description: "Customers with high total spend signal"
-```
-
-Two specification modes:
-- **Dimension sugar**: `dimension` + `threshold` -- auto-generates unit vector
-- **Explicit**: `normal` + `bias` -- full hyperplane specification
-
 ---
 
 ## Phase 4 -- Build + Verify
@@ -619,17 +359,9 @@ hypertopos build --config sphere.yaml --force --verbose --no-chains --no-tempora
 # Step 2: When geometry looks good, add temporal
 hypertopos build --config sphere.yaml --force --verbose --no-chains
 
-# Step 3: Full build with chains (uses cache on 2nd+ run)
+# Step 3: Full build with chains
 hypertopos build --config sphere.yaml --force --verbose
 ```
-
-### Performance notes
-
-- **Source caching:** Tier 3 script results cached as parquet in `.cache/`. Second build skips script execution.
-- **Chain caching:** Extracted chains cached as pickle in `.cache/`. Second build loads in <1s.
-- **Parallel:** Sources load in parallel; geometry + temporal build per-pattern in parallel.
-- **Batched derived dims:** All simple derived dims sharing the same FK computed in a single `group_by` call.
-- **IVF_FLAT indices:** Both geometry and trajectory use IVF_FLAT -- builds in seconds. The trajectory ANN index is skipped automatically when a pattern has too few entities to train it; trajectory search then uses a correct brute-force scan, which is fast at that scale.
 
 ### Verify
 
@@ -641,40 +373,11 @@ get_line_profile("entities", "key_property")  # Check: value distribution makes 
 find_anomalies("entity_pattern", top_n=3)     # Check: anomalies have meaningful dimensions
 ```
 
-### CI / pre-deploy verification (no MCP session needed)
+### CI / pre-deploy verification
 
-Three `hypertopos sphere` CLI verbs run directly against a built sphere
-directory — no live MCP session — so they slot into a CI gate or a
-pre-deploy script. All three accept `--json` for machine-readable output.
-
-```bash
-# 1. Structural integrity — does every declared line/pattern have its
-#    on-disk directory, and (with --strict) is calibration healthy?
-hypertopos sphere validate my_sphere/ --strict --json
-#    Exits 0 when valid, 1 when invalid. --strict promotes
-#    calibration_health "suspect"/"poor" and dim_quality_warnings from
-#    warnings to errors, so a degraded build fails the gate.
-
-# 2. Health check — composes sphere_overview + check_alerts into a single
-#    status: "ok" (no alerts) / "warning" (MEDIUM) / "critical" (HIGH).
-hypertopos sphere health my_sphere/ --exit-code-on-critical
-#    With --exit-code-on-critical the process exits 2 when any HIGH-severity
-#    alert fires, so `set -e` fails the deploy on a critical sphere.
-
-# 3. Diff against the currently-deployed sphere — pattern inventory
-#    (added / removed / common) + per-pattern calibration drift between
-#    the latest epoch of each.
-hypertopos sphere diff old_sphere/ new_sphere/ --json
-#    Patterns whose calibration schema differs are marked not_comparable
-#    rather than crashing. Use to catch an unintended pattern drop or a
-#    large overall_drift_rms before promoting a rebuild to production.
-```
-
-Recommended gate order: `validate --strict` (structure + calibration must
-pass) → `health --exit-code-on-critical` (no critical geometric alerts) →
-`diff` against the live sphere (review inventory + drift before promote).
-The `stale_vector_index` MEDIUM alert surfaced by `health` is handled by the
-incremental-ingest reindex path in Phase 5b below.
+`hypertopos sphere validate --strict`, `hypertopos sphere health --exit-code-on-critical`
+and `hypertopos sphere diff` check a built sphere without an MCP session. Gate order and
+flags are in [references/operations.md](references/operations.md).
 
 ### Profiling alerts as design signal
 
@@ -702,83 +405,13 @@ After initial build, the user may want to:
 
 Each change = edit YAML -> `hypertopos build --force` -> verify. Use skip flags for fast iteration.
 
-### Phase 5b — Incremental ingest (add entities without a full rebuild)
+### Phase 5b — Incremental ingest
 
-When new or changed entities arrive but the pattern design is fixed, you do
-not need a full `hypertopos build`. The `GDSBuilder` Python API updates one
-pattern's geometry in place against the existing μ/σ/θ calibration. This is a
-Python API path — there is no `hypertopos sphere ingest` CLI verb; drive it
-from a short script.
-
-> **Unsupported pattern types.** `incremental_update` reconstructs geometry
-> against the *global* μ/σ/θ, so it refuses a pattern calibrated per group
-> (`group_by_property`), per cluster (`gmm_n_components`), or carrying an FDR
-> hierarchy — those need per-group / per-cluster recalibration the incremental
-> path cannot reproduce. Rebuild those with `hypertopos build` instead.
-> Separately, a single pattern cannot declare `tracked_properties` together
-> with `edge_dimensions` / `edge_dim_aggregations` (the build refuses the
-> combination); split them across two patterns.
-
-```python
-import pyarrow as pa
-from hypertopos.builder.builder import GDSBuilder
-
-# Point the builder at the EXISTING built sphere directory.
-builder = GDSBuilder(sphere_id="my_sphere", output_path="my_sphere/")
-
-# changed_entities: an Arrow table with the pattern's primary_key column plus
-# the columns the pattern's dimensions are derived from. New keys are appended;
-# existing keys are updated in place. Every declared edge-dim-aggregation
-# ({dim}_{agg}) and event-dimension value column MUST be present — omitting one
-# now raises (it would otherwise z-score an absent 0.0 into a spurious delta and
-# corrupt the entity's anomaly geometry). Relations / prop columns may be absent.
-builder.incremental_update(
-    pattern_id="entity_pattern",
-    changed_entities=new_rows,        # pa.Table
-    deleted_keys=None,                # or a list[str] of keys to remove
-    recalibrate="auto",               # "auto" recalibrates only if drift crosses the soft threshold
-    reindex=False,                    # see batched-ingest note below
-)
-```
-
-Key parameters:
-
-- **`recalibrate`** — `"auto"` (default) recalibrates μ/σ/θ only when the
-  appended rows push calibration drift past the soft threshold; `"force"`
-  always recalibrates; `"never"` keeps the existing coordinate system. Use
-  `"never"` for small top-ups where you want appended entities scored against
-  the current population, `"auto"` for ongoing ingestion.
-- **`reindex`** — when `True`, rebuilds the ANN (IVF) vector index immediately
-  so the appended rows are visible to ANN-backed navigation
-  (`detect_trajectory_anomaly`, `find_similar_entities`, `find_drifting_similar`).
-  When `False` (default), the index is rebuilt only once the unindexed fraction
-  crosses ~10% — until then those rows are outside the index and the
-  `stale_vector_index` alert (see gds-monitor) fires.
-
-**Batched ingestion (many small appends):** pay the O(N) rank recompute and the
-reindex once at the end instead of per append:
-
-```python
-for batch in incoming_batches:
-    builder.incremental_update(
-        pattern_id="entity_pattern",
-        changed_entities=batch,
-        recompute_ranks=False,        # defer the global delta_rank_pct recompute
-    )
-builder.finalize_incremental("entity_pattern")  # recompute ranks + reindex once
-```
-
-`finalize_incremental(pattern_id)` recomputes the global `delta_rank_pct`
-percentile across the whole population (making every row standalone-correct
-again) and rebuilds the IVF index so all appended rows are indexed. It is
-idempotent and safe to call after `recompute_ranks=True` updates too. After a
-session, run `hypertopos sphere health my_sphere/` — a clean `stale_vector_index`
-status confirms the reindex took.
-
-**When to full-rebuild instead:** if the pattern's dimension set, relations, or
-the source schema changed, incremental update cannot reconstruct the new
-geometry — edit the YAML and run `hypertopos build --force`. Incremental ingest
-is for new rows under a fixed design, not for design changes.
+New or changed rows under a fixed design go through `GDSBuilder.incremental_update`
+(or `hypertopos sphere ingest`) instead of a full rebuild. Read
+[references/operations.md](references/operations.md) before running one: branch staging,
+unsupported pattern types, `recalibrate` / `reindex`, batched ingestion with
+`finalize_incremental`, and when to full-rebuild instead.
 
 ### Per-cohort calibration
 
@@ -824,48 +457,9 @@ triangulation -- confirm via a different pattern where only one source contribut
 
 ## Troubleshooting
 
-### Build issues
-
-| Signal | Fix |
-|--------|-----|
-| "column not found" | Check schema with `pyarrow.parquet.read_schema()` |
-| "unknown pattern" in temporal | Use `{composite_line_id}_pattern` or `{chain_line_id}_pattern` |
-| Sources phase >60s | Pre-export to parquet (Tier 1) or optimize script |
-| Chains phase >5min | Reduce `max_chains` or increase `min_hops`. Cached after first run |
-| Temporal phase >5min | Temporal rescans the event table per window — scales as O(entities x windows). Use `--no-temporal` for geometry iteration, then add temporal as a final pass. Use larger `window` (fewer snapshots) to reduce window count |
-| Build hangs during Geometry | Rule: group_count x population < 10M |
-| "Too many bins" / anomaly_rate=50% | Entity line has <10 entities -- too few for population statistics. Remove pattern or merge with larger line |
-| `pc.strftime` timezone error (Windows) | Cast timestamp to tz-naive first: `col.cast(pa.timestamp("us"))` before date operations |
-| `degree_velocity` returns flat/uniform timestamps | Edge auto-detect picked `created_at` (Lance metadata) instead of business timestamp. Set explicit `timestamp_col` in `edge_table` config |
-| `discover_chains` time window has no effect | Same root cause — edge table has metadata timestamp. Set explicit `timestamp_col` |
-| Amount-weighted path scoring inactive | Auto-detect only matches `amount`, `value`, `total`, `amt`. For domain-specific names (`fare_amount`, `total_amount`), set explicit `amount_col` in `edge_table` config |
-| `contagion_score > 1.0` or anomalous > total counterparties | NB-Split anchor resolution bug — rebuild with hypertopos >= 0.3.0 |
-
-### Calibration issues
-
-| Signal | Fix |
-|--------|-----|
-| anomaly_rate = 0% | Lower `anomaly_percentile` to 90 |
-| anomaly_rate > 20% | Raise `anomaly_percentile` to 99 |
-| calibration_health = poor | Add `group_by_property` or adjust `gmm_n_components` |
-| anomaly_rate higher with `group_by_property` | Expected -- per-group calibration is more sensitive |
-| `sphere_overview` rate != `find_clusters` rate | Rebuild sphere with current version |
-
-### Design issues
-
-| Signal | Fix |
-|--------|-----|
-| All anomalies driven by one dim | Check for outliers; cap or remove |
-| `profiling_alerts` extreme ratio (>3.0) | `find_anomalies(rank_by_property=dim)` to investigate |
-| Pattern has >10 dims | Split into 2-3 focused patterns |
-| Pattern has 1-2 dims | Merge with related concern or add dims |
-| Entity line has <10 entities | Too few for meaningful mu/sigma/theta. Remove pattern or merge into larger line |
-| Multiple patterns share entity line | Isolate with separate line |
-| Recall on ground truth <30% | `contrast_populations` -- which dims actually separate? |
-| One dim >80% of delta_norm | Remove or isolate the dominant dim |
-| Dead dimensions (zero variance) | Remove from pattern |
-| Temporal drift dominated by one dim | Isolate relational dims into own pattern |
-| 0 temporal slices | Verify `timestamp_col` points to actual date column |
+Symptom → fix tables for build, calibration and design problems are in
+[references/troubleshooting.md](references/troubleshooting.md). Read it when a build fails
+or is slow, the anomaly rate is off, or detection looks wrong.
 
 ---
 
@@ -884,20 +478,6 @@ patterns covering orthogonal concerns, then use `composite_risk` to combine.
 
 ## Examples
 
-For real-world sphere config examples (Berka banking, TPC-H supply chain),
-see [references/examples.md](references/examples.md).
+For real-world sphere config examples (banking, supply chain) and quick request-to-build
+walkthroughs, see [references/examples.md](references/examples.md).
 
-### Quick example: Build from parquet
-
-"I have customers.parquet and orders.parquet" -- Ask for PKs and FK columns,
-generate sphere.yaml (anchor + event + derived dims), build, verify anomaly_rate ~5%.
-
-### Quick example: Tune anomaly rate
-
-"Anomaly rate is 25%" -- Raise `anomaly_percentile` from 95 to 99, fast rebuild
-with `--no-chains --no-temporal`, verify rate drops to ~1-5%.
-
-### Quick example: Add temporal
-
-"Track behavior changes over time" -- Add `temporal:` section with pattern,
-event_line, timestamp_col, window. Rebuild with `--no-chains`, verify slice count.

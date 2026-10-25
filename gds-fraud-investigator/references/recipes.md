@@ -13,7 +13,7 @@ For the recipe summary table and the input/capability matrix see `SKILL.md`.
 **Pattern:** Entity A sends to B, and B sends back to A the same (or similar) amount within the same day. Classic circular flow indicator.
 
 **Tool sequence:**
-1. `discover_chains(primary_key, pattern_id, direction="both", time_window_hours=24, min_hops=2)` — find short loops
+1. `extract_chains(event_pattern_id, seed_nodes=[primary_key], bidirectional=True, time_window_hours=24, min_hops=2)` — find short loops (bidirectional treats edges as undirected, catching return flows)
 2. Filter chains where `keys[0] == keys[-1]` (cyclic) or where the chain returns to a known counterparty
 3. `anomalous_edges(from_key, to_key, pattern_id)` — inspect individual transactions between the mirror pair
 4. Compare amounts: if `abs(edge_a.amount - edge_b.amount) / max(amounts) < 0.05` → strong mirror signal
@@ -27,7 +27,7 @@ For the recipe summary table and the input/capability matrix see `SKILL.md`.
 **Pattern:** Entity receives funds and sends within 2 hours. The entity is a conduit, not a destination.
 
 **Tool sequence:**
-1. `discover_chains(primary_key, pattern_id, time_window_hours=2, min_hops=2, max_chains=50)` — find rapid chains
+1. `extract_chains(event_pattern_id, seed_nodes=[primary_key], time_window_hours=2, min_hops=2, top_n=50)` — find rapid chains
 2. `entity_flow(primary_key, pattern_id)` — check if `net_flow ≈ 0` (pass-through entities have balanced flow)
 3. `anomalous_edges(from_key, to_key, pattern_id)` — inspect individual transactions at the bottleneck hop
 
@@ -40,7 +40,7 @@ For the recipe summary table and the input/capability matrix see `SKILL.md`.
 **Pattern:** Many transactions to the same target within 24 hours, each below a reporting threshold.
 
 **Tool sequence:**
-1. `discover_chains(primary_key, pattern_id, time_window_hours=24, max_chains=100)` — find all outgoing activity
+1. `extract_chains(event_pattern_id, seed_nodes=[primary_key], time_window_hours=24, top_n=100)` — find all outgoing activity from this entity
 2. Group chains by terminal entity — look for repeated targets
 3. `anomalous_edges(from_key, target_key, pattern_id, top_n=50)` — get all edges to the repeated target
 4. Check if individual amounts are below a threshold but sum exceeds it
@@ -98,7 +98,7 @@ For the recipe summary table and the input/capability matrix see `SKILL.md`.
 3. Aggregate all `edge.amount` values across counterparties, compute first-digit distribution
 4. Compare with expected Benford distribution: 1→30.1%, 2→17.6%, 3→12.5%, etc.
 
-**Note:** `discover_chains` returns only `total_amount` per chain (aggregate sum), not individual transaction amounts. Use `anomalous_edges` to get per-transaction amounts needed for Benford analysis.
+**Note:** `extract_chains` returns per-chain amount aggregates (`total_amount`, `amount_std`, `amount_max`, `amount_min`, `amount_cv`), not individual transaction amounts. Use `anomalous_edges` to get per-transaction amounts needed for Benford analysis.
 
 **Interpretation:** Chi-squared test against Benford expected frequencies. p-value < 0.05 = amounts are likely not organic. Most effective with 100+ transactions.
 
@@ -131,25 +131,25 @@ For the recipe summary table and the input/capability matrix see `SKILL.md`.
 
 ## R9 — Chain-Coherent Cascade (Composition-based Layering)
 
-**Pattern:** A stored chain (anchor pattern built from `chain_lines:` BFS extraction OR ingested from an external system per the [external-chains convention](../../../hypertopos-py/docs/external-chains-as-anchor-line.md)) hops through ≥ N consecutive entity-anchor positions that are individually anomalous in the entity-anchor pattern AND share the same dominant delta dimension. The chain-level shape (hop count, time span, amount decay) may look unremarkable, but the *composition* of the path — every consecutive entity flagged for the same structural reason — is the signal.
+**Pattern:** A stored chain (anchor pattern built from `chain_lines:` BFS extraction OR ingested from an external system per the [external-chains convention](https://github.com/hypertopos/hypertopos-py/blob/main/docs/external-chains-as-anchor-line.md)) hops through ≥ N consecutive entity-anchor positions that are individually anomalous in the entity-anchor pattern AND share the same dominant delta dimension. The chain-level shape (hop count, time span, amount decay) may look unremarkable, but the *composition* of the path — every consecutive entity flagged for the same structural reason — is the signal.
 
-**External chain source.** When chains come from upstream (SAR typology engine, ERP workflow audit, EHR pathway, customer-journey platform), declare the chain table as an anchor line and populate the `chain_keys` column per the convention (comma-joined member primary_keys in chain order). The full R9 loop — `find_chains_with_coherent_anomaly`, `anomaly_propagation_in_chain`, `classify_chain_typology`, `extend_chain`, `chain_investigation_summary`, `investigate_chain` — works identically on those chains. No code change, just the schema convention. See [external-chains-as-anchor-line.md](../../../hypertopos-py/docs/external-chains-as-anchor-line.md) for the worked example.
+**External chain source.** When chains come from upstream (SAR typology engine, ERP workflow audit, EHR pathway, customer-journey platform), declare the chain table as an anchor line and populate the `chain_keys` column per the convention (comma-joined member primary_keys in chain order). The full R9 loop — `find_chains_with_coherent_anomaly`, `anomaly_propagation_in_chain`, `classify_chain_typology`, `extend_chain`, `chain_investigation_summary`, `investigate_chain` — works identically on those chains. No code change, just the schema convention. See [external-chains-as-anchor-line.md](https://github.com/hypertopos/hypertopos-py/blob/main/docs/external-chains-as-anchor-line.md) for the worked example.
 
 **Tool sequence (full investigative loop — triage → flag → trace → label → extend, with one-shot orchestrator shortcut):**
 
 0. **Triage (optional, recommended on unfamiliar spheres)** — `chain_investigation_summary(chain_pattern_id="<chain_pattern>", anchor_pattern_id="<entity_anchor>")` returns one-shot population aggregates: `coherent_run_rate`, `cross_pattern_overlap.jaccard` with chain-shape anomalies, `top_dims_in_coherent_runs`, `recommended_min_hops`, `run_length_distribution`. Triage rules: `coherent_run_rate < 0.005` AND low jaccard → skip the deep R9 loop, fall back to `find_anomalies(<chain_pattern>)`; `coherent_run_rate > 0.05` → expect a productive loop, proceed; `recommended_min_hops > 3` → use the recommended threshold in step 1 to focus on the strongest cases. Cost is one coherent-anomaly sweep — exactly what step 1 would pay anyway, with the aggregates surfaced for free.
 
-**Per-chain shortcut (after step 1 surfaces a target chain_id):** `investigate_chain(chain_id, "<chain_pattern>", anchor_pattern_id="<entity_anchor>")` runs steps 2-5 (trace + typology + shape-anomaly lookup + extension forward + extension backward) server-side in a single call and returns the aggregated report with a `summary` block. Strength scoring uses **four chain-composition signals** (coherent run length >= 3, typology position not "no-run", forward extension has an anomalous candidate, backward extension has an anomalous candidate) — chain-shape anomaly is reported as evidence but NOT scored, so the R9 sweet spot (composition anomalous, chain shape normal) reaches `strong` without needing chain-shape agreement. Buckets: `score >= 3` → `strong` → `escalate to SAR`; `score == 2` → `moderate` → `continue investigation`; `score 0-1` → `weak` → `false-positive candidate`. Rationale = concatenated SAR-ready paragraph. Use when the investigator already knows which chain to drill into and wants the full R9 read in one round-trip; the per-step granular tools (steps 2-5 below) remain available when finer per-step control is needed.
+**Per-chain shortcut (after step 1 surfaces a target chain_id):** `investigate_chain(chain_id, "<chain_pattern>", anchor_pattern_id="<entity_anchor>")` runs steps 2-5 (trace + typology + shape-anomaly lookup + extension forward + extension backward) server-side in a single call and returns the aggregated report with a `summary` block. Strength scoring uses **four chain-composition signals** (coherent run length >= 3, typology position not "no-run", forward extension has an anomalous candidate, backward extension has an anomalous candidate) — chain-shape anomaly is reported as evidence but NOT scored, so the R9 sweet spot (composition anomalous, chain shape normal) reaches `strong` without needing chain-shape agreement. Buckets: `score >= 3` → `strong` → `escalate to SAR`; `score == 2` → `moderate` → `continue investigation`; `score 0-1` → `weak` → `false-positive candidate`; when scored steps failed and could still change the bucket → `inconclusive` with `failed_steps` (never read a failed run as a cleared chain). Rationale = concatenated SAR-ready paragraph. Use when the investigator already knows which chain to drill into and wants the full R9 read in one round-trip; the per-step granular tools (steps 2-5 below) remain available when finer per-step control is needed.
 
 **SAR narrative draft (final step in the per-chain shortcut path):** `generate_sar_rationale(chain_id, "<chain_pattern>", anchor_pattern_id="<entity_anchor>", evidence=<investigate_chain output>)` composes a 3-5 paragraph SAR-ready narrative from the R9 evidence — chain identification + typology, per-hop trace, boundary extensions, chain-shape corroboration, aggregated strength + recommended action. No LLM call; pure template composition. Returns `sar_narrative` (paragraph-separated string), `evidence_anchors` (structured pointers per claim — investigator can audit every line against source data), `confidence` (`high` / `moderate` / `low` derived from strength + evidence completeness), and a `regulatory_template_hint` passthrough (`"FinCEN SAR"` default; tag with `"EU AMLR Annex II"` or internal template name for downstream filing systems). Pass the `investigate_chain` return verbatim as `evidence` to skip re-running the R9 loop. Honesty discipline: narrative uses "evidence indicates" / "the per-hop trace shows" / "corroborating evidence" — never "confirms" — and is positioned as a starting draft for the investigator, NOT a final verdict.
 
-1. **Flag** — `find_chains_with_coherent_anomaly(pattern_id="<chain_pattern>", anchor_pattern_id="<entity_anchor>", min_hops=3, max_results=100)` sweeps all chains in the chain pattern, returns ranked runs (chain_id, run_start_idx, run_length, top_dim, run_keys, max_delta_norm).
+1. **Flag** — `find_chains_with_coherent_anomaly(pattern_id="<chain_pattern>", anchor_pattern_id="<entity_anchor>", min_hops=3, top_n=100)` sweeps all chains in the chain pattern, returns ranked runs (chain_id, run_start_idx, run_length, top_dim, run_keys, max_delta_norm).
 2. **Trace** — for each top flagged chain: `anomaly_propagation_in_chain(chain_id, "<chain_pattern>", anchor_pattern_id="<entity_anchor>")` returns the full per-hop progression — see WHERE the anomaly intensity peaks and WHERE it breaks. Hops carry `is_anomaly`, `delta_norm`, `top_dim`, `delta_rank_pct`. Run end with low `delta_rank_pct` = clean exit; with elevated rank = soft boundary worth extending.
 3. **Label** — `classify_chain_typology(chain_id, ...)` wraps the trace and returns a five-axis operational tag: `shape` (rising / falling / peak-position), `position_in_chain` (leading / transit / terminal / full-chain), `extension_signals` (forward / backward booleans), plus `dominant_top_dim` across the whole chain. Lets investigator triage chains by typology without re-reading hop sequences.
 3b. **Witness coordination** — `chain_witness_intersection(chain_id, "<chain_pattern>", member_pattern="<entity_anchor>")` intersects the top witness dimensions of the chain's members. `coordinated=True` (mean pairwise Jaccard `>= min_jaccard`, default 0.5) means every member is anomalous for the same structural reason — a single geometric diagnosis for the chain instead of N independent member-level explanations. Use as the witness-side refinement of the typology label: same `shape` + `coordinated=True` reads stronger as a typology candidate than the same `shape` + `coordinated=False`.
 3c. **Drift trajectory** — `chain_drift_trajectory(chain_id, "<chain_pattern>", member_pattern="<entity_anchor>", n_windows=4)` returns the per-member regime over time-bucketed `delta_norm` plus a chain-level rollup (`normalizing` / `deteriorating` / `neutral` / `mixed`) and a numeric drift score. Use to spot chains whose members are *jointly* drifting toward anomaly before any single hop crosses the threshold — the rolling-onset surface complementary to the static trace in step 2.
 4. **Cross-check** — compare with `find_anomalies(<chain_pattern>)`: chains in BOTH sets are highest-confidence (chain shape AND chain composition agree); chains in coherent-anomaly-only are missed by chain-shape scoring; chains in baseline-only are flagged for shape (e.g. amount decay) but not composition. The two are orthogonal detectors.
-5. **Extend** — when `extension_signals.forward` or `.backward` is True (or the trace's breakpoint hop is in `delta_rank_pct >= 80` band): `extend_chain(chain_id, ..., direction="forward"|"backward")` returns ranked candidate entities that follow / precede the boundary in OTHER chains. Anomalous candidates with high `delta_norm` are prime targets for widening the investigation into the surrounding ring.
+5. **Extend** — when `extension_signals.forward` or `.backward` is True (or the trace's breakpoint hop is in `delta_rank_pct >= 80` band): `extend_chain(chain_id, ..., direction="forward"|"backward")` returns ranked candidate entities that follow / precede the boundary in OTHER chains (never the chain's own next / previous hop). Anomalous candidates with high `delta_norm` are prime targets for widening the investigation into the surrounding ring.
 6. **Deep-dive per candidate** — for each high-rank extension target: `find_chains_for_entity(candidate_key, <chain_pattern>)` to enumerate which chains contain it, then standard Phase 2 (Entity 360) on those chains' anchor entities.
 
 **Interpretation:** A run of length 4 with `top_dim="find_motif_structuring_max"` is textbook structuring — every account on the path is individually flagged for high motif-structuring activity. A run on `top_dim="pair_edge_count_count_above_threshold"` indicates burst-pair behaviour clustering. Mixed top_dim across the population (3-5 distinct drivers in the top 100 results) signals diverse layering vectors, not a single typology.
@@ -160,8 +160,8 @@ For the recipe summary table and the input/capability matrix see `SKILL.md`.
 
 **Why this is unique vs other tools:**
 - `find_anomalies(<chain_pattern>)`: scores chain SHAPE features (hop_count, amount_decay, time_span) — the chain looks unusual as a whole. Different axis from chain composition.
-- `trace_root_cause(entity_key, anchor_pattern_id)`: branching DAG from one root via counterparties. Different structure: tree from a single source, not a stored linear chain.
-- `decompose_drift(entity_key, anchor_pattern_id)`: temporal slice diff for one entity. Different axis: time, single entity.
+- `trace_root_cause(primary_key, anchor_pattern_id)`: branching DAG from one root via counterparties. Different structure: tree from a single source, not a stored linear chain.
+- `decompose_drift(primary_key, anchor_pattern_id)`: temporal slice diff for one entity. Different axis: time, single entity.
 - `find_motif_by_hops` with `require_anomalous_entity` per hop: runtime motif enumeration with anchor-anomaly check, requires explicit motif declaration. Operates on the edge table, not on persisted chain anchor patterns.
 
 **Agent-friendly query forms via `detect_pattern`.** Each step of the R9 loop has a natural-language form that the smart-mode router recognises and routes to the right primitive — agents don't need to remember primitive names, just the investigation intent. Chain anchor pattern + entity anchor pattern are auto-detected from sphere context; chain-id tokens of the form `CHAIN-<digits>` are extracted from the query and threaded through.
@@ -175,7 +175,7 @@ For the recipe summary table and the input/capability matrix see `SKILL.md`.
 
 The Flag query phrasing matches the suggestion `open_sphere` surfaces in `suggested_queries` when the sphere has both a chain anchor pattern and a non-chain entity anchor pattern, so agents discover the loop entry point without drilling into `sphere_overview`. Equivalent phrasings like "find chains where consecutive accounts cascade through structuring" or "anomaly cascade in chains" hit the same routing. After flagging, follow the loop sequentially: Flag → Trace → Label → cross-check (`find_anomalies(<chain_pattern>)` for chain SHAPE) → Extend. Each step's natural-language form is independent.
 
-**Step 6 deep-dive — direct call only.** `find_chains_for_entity(<account_key>, <chain_pattern>)` is **not** routable via natural language in the current implementation: the smart-mode router doesn't extract free-form entity keys from queries (chain-id tokens have a fixed `CHAIN-<digits>` shape; entity keys vary per sphere). After Extend surfaces candidates, the agent must call `find_chains_for_entity` directly with each candidate's primary_key to enumerate the chains they participate in. The R9 narrative still ends with this deep-dive step; only the natural-language entry point is missing.
+**Step 6 deep-dive — direct call only.** `find_chains_for_entity(<account_key>, <chain_pattern>)` is **not** routable via natural language: the smart-mode router doesn't extract free-form entity keys from queries (chain-id tokens have a fixed `CHAIN-<digits>` shape; entity keys vary per sphere). After Extend surfaces candidates, the agent must call `find_chains_for_entity` directly with each candidate's primary_key to enumerate the chains they participate in. The R9 narrative still ends with this deep-dive step; only the natural-language entry point is missing.
 
 When the smart-mode router doesn't have an LLM available it falls back to keyword matching on the same intent set. The keyword fallback skips chain-id-required steps when no `CHAIN-<digits>` token is present in the query, so a query like "classify chain shape" without a specific chain_id won't crash — just no per-chain step lands in the plan.
 
@@ -197,7 +197,7 @@ When the smart-mode router doesn't have an LLM available it falls back to keywor
 
 **Why unique vs other recipes:** R1 (mirror) and R2 (rapid layering) operate on single-currency same-day patterns and explicitly do not require currency or bank diversity. R3 (structuring) is amount-distribution-based, not flow-topology-based. R10 specifically requires currency_diversity ≥ 2 AND cross_bank_count ≥ 2 along the surfaced path, which is the structural signature of TBM as opposed to other layering typologies.
 
-**Status:** Exploratory — empirical lift TBD. Recipe captures architectural completeness (composes existing primitives into a TBM-shaped query); investigators should treat output as candidate set, not verdict, until the validation report lifts the exploratory tag.
+**Status:** Exploratory. The recipe composes existing primitives into a TBM-shaped query; investigators should treat its output as a candidate set, not a verdict.
 
 ---
 
@@ -207,7 +207,7 @@ When the smart-mode router doesn't have an LLM available it falls back to keywor
 
 **Tool sequence:**
 1. `find_clusters(pattern_id="account_pattern", n_clusters=0, top_n=10, sample_size=5000)` — silhouette-based auto-`k` clustering (`n_clusters=0` searches `k=2..15`, picks highest-mean-silhouette via internal subsample). On populations larger than ~100K explicitly subsample to 5000 first to keep cold-call latency bounded. Mule networks present as low-volume clusters distinct from the bulk population
-2. For each candidate cluster: aggregate `contagion_score(member_key, anchor_pattern_id="account_pattern")` over members — high mean indicates group-level contagion (anomaly propagates symmetrically across the cluster, not radiating from one seed)
+2. For each candidate cluster: aggregate `contagion_score(member_key, pattern_id="account_pattern")` over members — high mean indicates group-level contagion (anomaly propagates symmetrically across the cluster, not radiating from one seed)
 3. For top candidates: `cross_pattern_profile(member_key, line_id)` per member — verify multi-pattern flagging (`account_pattern` + `account_pairs_pattern` etc. both flag the same set)
 
 **Score:** `cluster_size × mean_contagion_score × multi_pattern_hit_rate` (where `multi_pattern_hit_rate` is the fraction of cluster members flagged on ≥ 2 patterns).
@@ -218,4 +218,4 @@ When the smart-mode router doesn't have an LLM available it falls back to keywor
 
 **Why unique vs other recipes:** R5 classifies one entity at a time (source / sink / mule); R8 expands a cohort *from a confirmed seed* via witness overlap. R11 discovers the network *without* a seed, via cluster density on `account_pattern` geometry — the entry point is the cluster itself, not a known suspect.
 
-**Status:** Exploratory — empirical lift TBD. Same caveat as R10.
+**Status:** Exploratory. Same caveat as R10: treat output as a candidate set, not a verdict.

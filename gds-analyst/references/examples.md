@@ -82,7 +82,8 @@ find_similar_entities("CUST-0023", "customers_pattern", top_n=10)
 [Repeat for 4 more anomalous seeds — 5 calls total]
 
 [Sample 5 normal entities from delta_rank_pct 30-70]
-walk_line("customers", top_n=200) → select 5 at rank_pct 35-65
+search_entities("customers", "<segment column>", "<value>", top_n=200)
+→ check_anomaly_batch(keys, "customers_pattern") → select 5 at delta_rank_pct 35-65
 find_similar_entities(each, "customers_pattern", top_n=10)
 check_anomaly_batch → no additional contamination targets found
 ```
@@ -157,10 +158,10 @@ sphere_overview(detail="full")
 → these are below-theta accounts with high event anomaly rates
 
 aggregate("transactions_pattern", group_by_line="accounts",
-          geometry_filters={"is_anomaly": true}, limit=50)
+          geometry_filters={"is_anomaly": true}, top_n=50)
 → 50 accounts sorted by anomalous transaction count
 
-aggregate("transactions_pattern", group_by_line="accounts", limit=50)
+aggregate("transactions_pattern", group_by_line="accounts", top_n=50)
 → total transaction counts
 
 [Compute rate = anomalous/total for each]
@@ -224,13 +225,13 @@ find_anomalies("customers_geo", rank_by_property="total_orders", top_n=50)
 [Main detection]
 find_anomalies("customers_geo", top_n=20) → 20 geometric anomalies
 aggregate("orders_geo", group_by_line="customers",
-          geometry_filters={"is_anomaly": true}, limit=50)
-aggregate("orders_geo", group_by_line="customers", limit=50)
+          geometry_filters={"is_anomaly": true}, top_n=50)
+aggregate("orders_geo", group_by_line="customers", top_n=50)
 → compute rates: 4 customers above 15% threshold
 
 [Composite]
-aggregate_anomalies("order_items_composite", group_by="customer_key", limit=50)
-find_anomalies("order_items_composite", rank_by_property="avg_item_price", limit=50)
+aggregate_anomalies("order_items_composite", group_by="customer_key", top_n=50)
+find_anomalies("order_items_composite", rank_by_property="avg_item_price", top_n=50)
 
 [Alias boundaries]
 attract_boundary("high_value_customers", "customers_geo", direction="in")

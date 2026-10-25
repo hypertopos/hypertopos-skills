@@ -1,6 +1,6 @@
 # Phase 3 — Typology Detection
 
-Each typology is a sequence of MCP calls. Execute step-by-step.
+Each typology is a sequence of MCP calls in shorthand: arguments that stay the same across a typology (the event pattern and its `line_id` / `from_col` / `to_col` for `find_counterparties`, the anchor pattern for `dive_solid`) are left out — fill them in from `get_sphere_info()`. A `get_polygon(pattern)` step reads the entity selected by the preceding `goto(key, line_id)` — call `goto` for each suspect first.
 
 > **Newer recipes in `SKILL.md`.** The R-numbered recipe family in the main skill (R1-R11) is the canonical entry point for typology recipes. The Phase 3 typologies below are the legacy presentation kept for reference. New domain-specific recipes — R10 (Trade-based money laundering), R11 (Mule network discovery) — live in `SKILL.md` after R9. When a Phase 3 typology composes the same primitives as an R-recipe, prefer the R-recipe in investigator workflows.
 
@@ -14,7 +14,7 @@ Multi-hop structuring with rounded amounts across jurisdictions.
 3. Filter: amount_uniformity > 0.7
          AND n_currencies_out >= 2
          AND n_dest_banks >= 3
-4. For passing: extract_chains(seed_nodes=[pk], min_hops=3)
+4. For passing: extract_chains("<event_pattern>", seed_nodes=[pk], min_hops=3)
 5. Filter chains: hop_count >= 3 AND n_distinct_categories >= 2
 6. Flag: STRUCTURED_LAYERING
 ```
@@ -29,7 +29,7 @@ Short intense burst with return flow (A->X->A in <24h).
 1. passive_scan("accounts", threshold=1)
 2. For suspects: get_polygon("account_pattern")
 3. Filter: burst_tx_out > 10 AND n_currencies_out >= 2
-4. extract_chains(seed_nodes=[pk], time_window_hours=24)
+4. extract_chains("<event_pattern>", seed_nodes=[pk], time_window_hours=24)
 5. Filter chains: is_cyclic=true AND time_span_hours < 24
          AND total_amount in top percentile for population
 6. Confirm: cross_pattern_profile(pk) → connected_risk > 80
@@ -41,7 +41,7 @@ Short intense burst with return flow (A->X->A in <24h).
 Classic A->B->C->A cycle in short time window.
 
 ```
-1. extract_chains(seed_nodes=[suspects], min_hops=2, max_hops=5)
+1. extract_chains("<event_pattern>", seed_nodes=[suspects], min_hops=2, max_hops=5)
 2. Filter: is_cyclic=true
          AND time_span_hours <= 24
          AND n_distinct_categories >= 2
@@ -68,7 +68,7 @@ Intense ping-pong between two accounts (A<->B).
 4+ hop chain across multiple jurisdictions.
 
 ```
-1. extract_chains(seed_nodes=[suspects], min_hops=4)
+1. extract_chains("<event_pattern>", seed_nodes=[suspects], min_hops=4)
 2. Filter: hop_count >= 4
          AND total_amount in top percentile for population
          AND n_distinct_categories >= 2
@@ -115,7 +115,7 @@ Very intense burst with multi-hop chain and return flow.
 1. passive_scan("accounts", threshold=1)
 2. get_polygon("account_pattern")
 3. Filter: burst_tx_out > 15 AND n_currencies_out >= 2
-4. extract_chains(seed_nodes=[pk], time_window_hours=1)
+4. extract_chains("<event_pattern>", seed_nodes=[pk], time_window_hours=1)
 5. Filter: total_amount in top percentile for population AND n_distinct_categories >= 2
 6. Check return flow: extract_chains with reverse seed
 7. Flag: FLASH_BURST_MULTIHOP
@@ -157,7 +157,7 @@ Uses `max_rolling_z` from temporal build.
 Repeated cyclic flows between same accounts (not one cycle but many).
 
 ```
-1. extract_chains(seed_nodes=[suspects], min_hops=2, max_hops=4)
+1. extract_chains("<event_pattern>", seed_nodes=[suspects], min_hops=2, max_hops=4)
 2. Group chains by (first_key, last_key) pair
 3. Filter groups: count >= 3 (same pair cycles 3+ times)
          AND total_amount across cycles in top percentile
@@ -171,7 +171,7 @@ Repeated cyclic flows between same accounts (not one cycle but many).
 Multiple independent chains converge on the same destination account.
 
 ```
-1. extract_chains(seed_nodes=[suspects], min_hops=2)
+1. extract_chains("<event_pattern>", seed_nodes=[suspects], min_hops=2)
 2. Group chains by last_key (destination account)
 3. Filter destinations: count_chains >= 3 (3+ independent chains arrive here)
          AND sum(total_amount across chains) in top percentile
@@ -220,7 +220,7 @@ Flow spread across many jurisdictions with no single country dominating.
 Multiple chains where each hop is below reporting thresholds but aggregate is significant.
 
 ```
-1. extract_chains(seed_nodes=[suspects], min_hops=3)
+1. extract_chains("<event_pattern>", seed_nodes=[suspects], min_hops=3)
 2. Filter chains: amount_cv < 0.3 (uniform small amounts per hop)
          AND total_amount in top percentile for population
          AND hop_count >= 3
@@ -269,7 +269,7 @@ Account with historically stable regular pattern that suddenly becomes chaotic.
 Long chains with deliberate time gaps between hops (slow-motion layering).
 
 ```
-1. extract_chains(seed_nodes=[suspects], min_hops=3, time_window_hours=168)
+1. extract_chains("<event_pattern>", seed_nodes=[suspects], min_hops=3, time_window_hours=168)
 2. Filter chains: hop_count >= 4
          AND time_span_hours > 48 (spread over days, not hours)
          AND time_span_hours < 168
@@ -280,14 +280,14 @@ Long chains with deliberate time gaps between hops (slow-motion layering).
 5. Flag: MULTI_JURISDICTION_LATENCY
 ```
 
-> **Fast-path:** `find_high_potential_motifs(pattern_id, motif_type="chain_k", k=5, time_window_hours=168)` surfaces deliberate-pacing deep chains in one call; `get_polygon(first_key)` then verifies `avg_time_between_hops > 12h`.
+> **Fast-path:** `find_high_potential_motifs(pattern_id, motif_type="chain_k", k=5, time_window_hours=168)` surfaces deliberate-pacing deep chains in one call; `goto(first_key, line_id)` then `get_polygon(pattern_id)` verifies `avg_time_between_hops > 12h`.
 
 ### Typology 19: Multi-Direction Feedback Loop
 
 Complex feedback pattern with direction changes (A->B->C->B->A).
 
 ```
-1. extract_chains(seed_nodes=[suspects], min_hops=3,
+1. extract_chains("<event_pattern>", seed_nodes=[suspects], min_hops=3,
      bidirectional=true, time_window_hours=48)
 2. Check chain keys for direction reversal:
      keys[i] == keys[i+2] (bounce pattern: A->B->A)

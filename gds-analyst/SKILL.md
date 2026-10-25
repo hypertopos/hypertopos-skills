@@ -1,11 +1,11 @@
 ---
 name: gds-analyst
-description: GDS anomaly investigation — goal-oriented, reads investigation hints and plans approach around what to find. Use for any investigation task with or without specific anomaly categories. Triggers on "investigate", "find anomalies", "run analysis", "what's anomalous here", "sphere health check", or any anomaly investigation task.
+description: GDS anomaly investigation — goal-oriented, reads investigation hints and plans approach around what to find. Use for any investigation task with or without specific anomaly categories. Triggers on "investigate", "find anomalies", "run analysis", "what's anomalous here", "sphere health check", or any anomaly investigation task. Requires hypertopos MCP server.
 license: Apache-2.0
 compatibility: Requires hypertopos MCP server. Designed for Claude Code and compatible agents.
 metadata:
   author: Karol Kędzia
-  version: 0.8.0
+  version: 0.9.0
   mcp-server: hypertopos
 ---
 
@@ -73,7 +73,7 @@ full mapping. The most common:
 | Hint category | Primary scan | Secondary |
 |---|---|---|
 | Cross-pattern discrepancy | `passive_scan(threshold=1)` + `cross_pattern_profile` | `composite_risk` (Wilson harmonic-mean p, robust under positive dependence) for borderline |
-| Detector composition / multi-source p-values | `combine_anomaly_pvalues([(pattern_id, p), ...])` | `classify_detector_consensus` for agreement/dissent labeling |
+| Detector composition / multi-source p-values | `combine_anomaly_pvalues(pattern_id, detectors=[...])` | `classify_detector_consensus` for agreement/dissent labeling |
 | Geometric neighborhood | `detect_neighbor_contamination` (inverted search) | `find_similar_entities` + `check_anomaly_batch` fallback |
 | Temporal trajectory | `detect_trajectory_anomaly` (full temporal scan) | `dive_solid` + `find_drifting_similar` fallback |
 | Population segment shift | `find_regime_changes` → segment `property_filters` | `contrast_populations` |
@@ -89,7 +89,7 @@ Allocate **70% of budget to matched scans**, 30% to exploration and validation.
 
 Every hint requires a finding in the report — even if the finding is "not detected."
 
-**FDR control on every scan that feeds downstream work.** Set `fdr_alpha=0.05` on `find_anomalies`, `attract_boundary`, `find_hubs`, `find_drifting_entities` to bound false discoveries before they propagate into cross-pattern or root-cause analysis. When the pattern declares `fdr_hierarchy:` (spatial) or `fdr_temporal_hierarchy:` (temporal) in `sphere.yaml`, add `fdr_resolution="<spatial_level>"` and/or `fdr_temporal_resolution="<temporal_level>"` to scope BH/Storey FDR to a sub-population — surfaces "this bank / this quarter is suspicious" rather than "these accounts are suspicious". For single-dim driver investigation, use `fdr_axis="per_dim"` with `rank_by="min_q_per_dim"` — re-ranks survivors by smallest per-dim q-value so a rare-but-real single-dim signal that joint-norm tests dilute surfaces first. Full FDR cheatsheets live in `gds-detective`.
+**FDR control on every scan that feeds downstream work.** Set `fdr_alpha=0.05` on `find_anomalies` and `attract_boundary` (FDR runs on χ² model p-values; `find_hubs` / `find_drifting_entities` are rank-only and offer no FDR) to bound false discoveries before they propagate into cross-pattern or root-cause analysis. When the pattern declares `fdr_hierarchy:` (spatial) or `fdr_temporal_hierarchy:` (temporal) in `sphere.yaml`, add `fdr_resolution="<spatial_level>"` and/or `fdr_temporal_resolution="<temporal_level>"` to scope BH/Storey FDR to a sub-population — surfaces "this bank / this quarter is suspicious" rather than "these accounts are suspicious". For single-dim driver investigation, use `fdr_axis="per_dim"` with `rank_by="min_q_per_dim"` — re-ranks survivors by smallest per-dim q-value so a rare-but-real single-dim signal that joint-norm tests dilute surfaces first. Full FDR cheatsheets live in `gds-detective`.
 
 ### Root cause the findings
 
@@ -98,7 +98,7 @@ For every anomalous cluster discovered by targeted scans:
 ```
 explain_anomaly(key, pattern)       → WHICH dimension dominates?
 dive_solid(key, pattern)            → WHEN did it change?
-find_counterparties or get_event_polygons(key)  → WHAT caused it?
+find_counterparties or get_event_polygons(key, event_pattern)  → WHAT caused it?
   entity_flow(key, pattern_id)      → net flow summary before detailed counterparty drill-down
   contagion_score(key, pattern_id)  → what fraction of neighbors are anomalous?
 compare_entities(key, normal_peer)  → HOW does it differ?
@@ -108,18 +108,18 @@ Minimum: first 3 links. Fourth for top-priority findings only.
 
 **One-call shortcut:** `investigate_entity(primary_key, pattern_id, line_id=<event_pattern>)` chains polygon shape + `explain_anomaly` + witness cohort + chains + `trace_root_cause` + `find_graph_geometry_tension` into one MCP call with per-step `steps_status`. Use as default Phase 2 entry when one structured report beats six manual calls; drop into the per-step chain only when fine-grained control is needed. Entity-side analog of `investigate_chain`.
 
-**Reliability filter before opening a case:** every flagged polygon now carries `reliability_flags` on `find_anomalies`, `explain_anomaly`, `composite_risk`, `combine_anomaly_pvalues`, and `investigate_entity`. Two flags fire independently — `single_dim_driven=true` (one dim contributes >70 % of attribution, likely data-quality artefact) and `low_confidence_bucket=true` (bootstrap `anomaly_confidence < 0.5`, fragile to resampling). Treat either as a soft hit; corroborate with a second detector before escalating. When `single_dim_driven=true` fires, call `find_diverse_explanations(primary_key, pattern_id, n_hypotheses=3)` to surface alternative hypotheses beyond the dominant dim.
+**Reliability filter before opening a case:** every flagged polygon now carries `reliability_flags` on `find_anomalies`, `explain_anomaly`, `composite_risk`, `combine_anomaly_pvalues`, and `investigate_entity`. Two flags fire independently — `single_dim_driven=true` (one dim carries >70 % of `delta_norm²`, likely data-quality artefact) and `low_confidence_bucket=true` (bootstrap `anomaly_confidence < 0.5`, fragile to resampling). Treat either as a soft hit; corroborate with a second detector before escalating. When `single_dim_driven=true` fires, call `find_diverse_explanations(primary_key, pattern_id, n_hypotheses=3)` to surface alternative hypotheses beyond the dominant dim.
 
 **One-call reliability rollup — `assess_anomaly_certainty`.** Instead of reading `reliability_flags` plus calibration health plus cross-pattern agreement separately, `assess_anomaly_certainty(primary_key, pattern_id)` composes them into a single `certainty_verdict` ∈ {`high`, `moderate`, `low`, `contested`} with `certainty_score`, FDR `stability_across_alphas`, the same `reliability_flags` (single_dim_driven / near_data_boundary / calibration_stale), and `cross_pattern_consistency`. `certainty_verdict` is certainty about the classification, not about anomaly status (a confidently-normal entity scores `high`). Run it on each key suspect before promoting it from a scan hit to a finding: `high` → proceed; `moderate`/`low` → corroborate; `contested` (calibrated `conformal_p` disagrees with the stored flag, or single-dim-driven AND near-boundary) → treat as a FALSE POSITIVE candidate until the conflict resolves, and call `find_diverse_explanations` when `single_dim_driven` is the cause.
 
-**Detector consensus on one entity — `consensus_classification`.** When the entity line carries ≥2 patterns, `consensus_classification(primary_key, pattern_id)` focuses `classify_detector_consensus` on a single entity and returns `classification` ∈ {`anomalous_consensus`, `mixed_signal`, `single_detector_signal`, `normal_consensus`, `insufficient_data`} plus the firing detector lists, `hmp`, and `population_rank`. Wire it alongside the certainty gate in the reliability-filter step: `anomalous_consensus` corroborates a `high` certainty into a strong finding; `mixed_signal` (detectors genuinely disagree — the hidden-mule surface) and `single_detector_signal` (one lone detector) are hold-and-corroborate signals, not findings, until a second pattern agrees. If the entity is not in the scored sample the response reports `found=false` — raise `sample_size` (or pass `None` for full population) and re-run.
+**Detector consensus on one entity — `consensus_classification`.** When the entity line carries ≥2 patterns, `consensus_classification(primary_key, pattern_id)` focuses `classify_detector_consensus` on a single entity and returns `classification` ∈ {`anomalous_consensus`, `mixed_signal`, `single_detector_signal`, `normal_consensus`, `insufficient_data`} plus the firing detector lists, `hmp`, and `population_rank`. Wire it alongside the certainty gate in the reliability-filter step: `anomalous_consensus` corroborates a `high` certainty into a strong finding; `mixed_signal` (detectors genuinely disagree — the hidden-mule surface) and `single_detector_signal` (one lone detector) are hold-and-corroborate signals, not findings, until a second pattern agrees. The focal entity is always scored; `found=false` means it does not exist in the pattern.
 
 **Pre-investigation dim audit** — before opening a multi-finding case on a labelled sphere (`get_sphere_info` shows `label_aware_available: true`), call `audit_pattern_dims(pattern_id, top_k=10)` once. Returns per-dim raw mu/sigma + class-conditioned moments + Cohen's d + Fisher LDA direction component, sorted by `|cohens_d_pos_neg|` desc. Flags `recommended_action` ∈ {keep, split, drop_low_separation, investigate_drift, kind_mismatch_review} per dim. Use to (a) identify which dims actually carry label-discriminating signal — focus drill-down on those; (b) flag `drop_low_separation` dims as noise contributors — explain anomalies on remaining dims rather than the noisy ones; (c) catch `kind_mismatch_review` candidates pre-write-up — empirical departure from the declared kind means raw `delta_norm` mis-ranks. On spheres without `label_audit:` block the tool falls back to raw stats only, still useful for surfacing per-dim mu/sigma ranking.
 
 **Counterfactual drill-down** (4 tools, edge-table required for the first three):
 - `simulate_edge_removal(key, pattern_id, line_id, top_n=5)` — rank an entity's edges by contribution to `delta_norm`; returns `(edge_id, drop_pct, dominant_dim_label)` per edge. Answers "which transactions made this entity anomalous".
 - `simulate_counterparty_removal(key, pattern_id, line_id, top_n=5)` — collapse all edges to one counterparty per call; ranks counterparties by aggregate `delta_norm` drop.
-- `select_minimal_joint_edge_removal(key, pattern_id, line_id, target="flip")` — smallest edge set whose joint removal flips the anomaly verdict.
+- `select_minimal_joint_edge_removal(key, pattern_id, line_id, target_drop_pct=50)` — smallest edge set whose joint removal drops delta_norm by at least 50% (typically sufficient to flip the anomaly verdict).
 - `simulate_dimension_change(key, pattern_id, line_id, set_dimension={dim: value})` — what-if shape-vector override; reports `delta_norm_before/after`, the anomaly-flag flip, and new top witness dims.
 
 ### Step 4T — Cross-validate + temporal
@@ -230,7 +230,7 @@ An investigation with 60 detection calls and 0 root cause calls is a failure.
 □ Root cause chain (explain → when → what) for every major finding
 □ Every finding has (a) mechanism, (b) affected entity list, (c) concrete remediation step
 □ Entity lists are complete — ALL entities, not "top 5 examples"
-□ limit=50 (not default 20) on all investigation queries
+□ top_n=50 (not the default) on all investigation queries
 □ Minimum 3 hypotheses tested with explicit confirmed/rejected verdicts
 □ False positive assessed for every finding
 □ Overall estimated FP rate stated at end of report

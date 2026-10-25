@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Requires hypertopos MCP server. Designed for Claude Code and compatible agents.
 metadata:
   author: Karol Kędzia
-  version: 0.8.0
+  version: 0.9.0
   mcp-server: hypertopos
 ---
 
@@ -45,14 +45,28 @@ edge_stats(pattern_id) -> row_count, unique_from, unique_to, avg_degree
 
 If `edge_stats` returns `null`, the pattern has no edge table — skip all
 edge-dependent tools (`find_counterparties`, `find_geometric_path`,
-`discover_chains`, `extract_chains`, `find_chains_for_entity`) and note
+`extract_chains`, `find_chains_for_entity`) and note
 "no edge data available" in the report.
 
 ### Sphere health gates
 
-**Pattern-level auditors in `dim_quality_warnings`** — beyond `dead_dim` and `sparse_dim` (per-dim signals), `sphere_overview` also surfaces `dominant_dim_mass` (pattern-level: one dim accounts for ≥70% of tail variance — sphere is effectively a one-dim detector on this pattern), `negative_space` (gaussian-declared dims that empirically sit at zero — the gaussian z-score is wrong for them), `non_normal_dim` (per-dim: a `kind='gaussian'` dim has Shapiro-Wilk / KS `p < 0.01` at build time — the z-score percentile semantics are unstable; recommend `log1p` / `sqrt` / `rank` transform or kind re-declaration), and `heteroscedasticity` (pattern-level: Brown-Forsythe Levene `p < 0.01` on `delta_norm` partitioned by `group_by_property` — the global θ assumption is statistically violated, so a single global threshold produces unequal false-positive rates per group). When `dominant_dim_mass` fires, cross-check by inspecting `reliability_flags.single_dim_driven` incidence on `find_anomalies` top-N for that pattern — pattern-level dominance ⟹ high per-polygon incidence agreement. When `negative_space` fires, treat the affected dim's contribution to `delta_norm` as suspect and prefer `kind='bernoulli'` / `kind='poisson'` re-declaration over per-entity drill-down. When `non_normal_dim` fires (and `negative_space` does not), the dim's z-score is a poor anomaly scorer because the empirical distribution is heavy-tailed; raise a calibration ticket — variance-stabilizing transform in the column source script + rebuild fixes it. When `heteroscedasticity` fires, the pattern already carries per-group calibration via `group_by_property` (the warning is confirmation it was statistically warranted), but cross-group anomaly score comparison is suspect; use `aggregate(group_by=<prop_col>)` to inspect per-group anomaly rates before drawing conclusions across the whole pattern.
+**Pattern-level auditors in `dim_quality_warnings`** — beyond `dead_dim` and `sparse_dim` (per-dim signals), `sphere_overview` also surfaces `dominant_dim_mass` (pattern-level: one dim accounts for ≥70% of tail variance — sphere is effectively a one-dim detector on this pattern), `negative_space` (gaussian-declared dims that empirically sit at zero — the gaussian z-score is wrong for them), `non_normal_dim` (per-dim: a `kind='gaussian'` dim has Shapiro-Wilk / KS `p < 0.01` at build time — the z-score percentile semantics are unstable; recommend `log1p` / `sqrt` / `rank` transform or kind re-declaration), and `heteroscedasticity` (pattern-level: Brown-Forsythe Levene `p < 0.01` on `delta_norm` partitioned by `group_by_property` — the global θ assumption is statistically violated, so a single global threshold produces unequal false-positive rates per group). When `dominant_dim_mass` fires, cross-check by inspecting `reliability_flags.single_dim_driven` incidence on `find_anomalies` top-N for that pattern — pattern-level dominance ⟹ high per-polygon incidence agreement. When `negative_space` fires, treat the affected dim's contribution to `delta_norm` as suspect and prefer `kind='bernoulli'` / `kind='poisson'` re-declaration over per-entity drill-down. When `non_normal_dim` fires (and `negative_space` does not), the dim's z-score is a poor anomaly scorer because the empirical distribution is heavy-tailed; raise a calibration ticket — variance-stabilizing transform in the column source script + rebuild fixes it. When `heteroscedasticity` fires, the pattern already carries per-group calibration via `group_by_property` (the warning is confirmation it was statistically warranted), but cross-group anomaly score comparison is suspect; use `aggregate(event_pattern_id, group_by_line=<related_line>, group_by_property="<line_id>:<prop_col>")` to inspect per-group anomaly rates before drawing conclusions across the whole pattern.
 
 **Label-aware dim audit (`audit_pattern_dims`)** — when the sphere carries a `label_audit:` block in `sphere.yaml` (`label_aware_available: true` on `get_sphere_info`), call `audit_pattern_dims(pattern_id, top_k=10)` to surface label-discriminating dims. The tool returns per-dim raw mu/sigma plus class-conditioned `mu_pos` / `sigma_pos` / `mu_neg` / `sigma_neg`, `cohens_d_pos_neg`, and the per-dim component of the Fisher LDA direction vector. Each dim carries `recommended_action` ∈ {`keep`, `split`, `drop_low_separation`, `investigate_drift`, `kind_mismatch_review`}. Use to: (a) confirm which dims are actually driving the positive class — high `|direction_component|` ⟹ informative axis; (b) flag dims with high `cohens_d_pos_neg` but low `|direction_component|` as candidates for `split` (compound signal — the raw separation is real but the dim conflates two regimes); (c) flag `drop_low_separation` candidates pre-rebuild (`|cohens_d| < 0.1` ⟹ dim contributes noise to delta vector). Spheres without `label_audit:` return a fallback shape with raw stats and `recommended_action: keep` — still useful for surfacing per-dim mu/sigma ranking without label semantics.
+
+---
+
+## Investigation checklist
+
+Copy this list and tick it off per investigation:
+
+- [ ] `edge_stats` checked; edge-dependent tools skipped when it returns null
+- [ ] Suspects chosen (ground-truth recall table, or FDR-controlled `find_anomalies`)
+- [ ] Each suspect gated (`reliability_flags`, `assess_anomaly_certainty`) before a case opens
+- [ ] Root cause traced and the repair set from `explain_anomaly` reported
+- [ ] At least 3 hypotheses tested; rejected ones kept in the report
+- [ ] Every finding classified CONFIRMED / SUSPECTED / FALSE POSITIVE; FP rate stated
+- [ ] `investigation_coverage` run before closing
 
 ---
 
@@ -98,18 +112,8 @@ composite_risk_batch(missed_keys, line_id)
 
 Threshold: `combined_p < 0.10` (relaxed vs typical 0.05).
 
-**Lower-level p-value composition** (when detectors outside `cross_pattern_profile` matter
-— external rules engines, typology scores, chain-coherent run p-values):
-
-```
-combine_anomaly_pvalues([(pattern_id, p_value), ...], method="hmp")
--> Wilson HMP combination (default; robust under positive dependence)
-   or method="fisher" for classical independence.
--> Returns combined_p + per-pattern reliability_flags pass-through.
-classify_detector_consensus([(pattern_id, p_value), ...])
--> Labels the set: unanimous_anomaly / majority_anomaly / split / unanimous_normal.
-   "split" verdict is itself a signal — entity at the boundary of two typologies.
-```
+**Lower-level p-value composition** across detectors (`combine_anomaly_pvalues`,
+`classify_detector_consensus`) is in [references/population-analyses.md](references/population-analyses.md).
 
 ## Investigating without ground truth
 
@@ -130,13 +134,9 @@ Form hypotheses about what drives anomalies, test them
 
 ## FDR control and diverse selection
 
-When tracing root causes, use `fdr_alpha=0.05` on `find_anomalies` to ensure the initial suspect list has controlled false discovery rate — chasing false positives through the full root-cause chain wastes the entire investigation budget. Use `select="diverse"` when requesting K>10 results to surface anomalies driven by different dimensions rather than clustering on one dominant failure mode; this ensures the investigation covers distinct root-cause categories. Both parameters also apply to `attract_boundary`, `find_hubs`, and `find_drifting_entities`.
-
-**Adaptive FDR (Storey).** When the investigation needs to expand the candidate list without relaxing α, try `fdr_method="storey"` together with `p_value_method="chi2"` — the Storey LSL estimator detects when the population has a real null mass and shrinks q-values accordingly, typically recovering 10–15% more suspects at the same false-discovery guarantee. The two parameters must be set together: Storey with the default rank p-values has no effect (rank p-values are uniform by construction). If the pattern is heavily compressed (every entity looks sub-null) or saturated (every entity already exceeds the null), Storey collapses to BH — keep the default in those regimes.
-
-**Prioritise deteriorating drift.** When `drift_direction` is `"deteriorating"`, the entity is structurally moving away from the null centre — investigation priority is higher than for equally-displaced entities with `"normalizing"` direction, which are already self-correcting. Use this to rank multiple drifting entities by risk rather than raw displacement.
-
-**Decompose drift into intrinsic vs extrinsic.** `decompose_drift(entity, pattern)` (default args) splits the entity's drift between its first and last temporal slice into intrinsic (entity-driven shape change, σ from oldest retained calibration) and extrinsic (residual, population recalibration). The aggregate `intrinsic_fraction` answers: "Of the squared change, what proportion was the entity itself?" Use when `find_drifting_entities` flags an entity and you need to discriminate "this entity actually moved" from "the population calibrated around it". An entity at `intrinsic_fraction ≈ 0.05` didn't really change — recalibration shifted the coordinate system around it. An entity at `intrinsic_fraction ≈ 0.95` is the real signal. `find_drifting_entities` already attaches the same three scalars per entry for batch triage.
+Start the suspect list with `fdr_alpha=0.05` on `find_anomalies` and use `select="diverse"` for K>10.
+Storey FDR, drift-direction priority and `decompose_drift` are in
+[references/tuning-and-troubleshooting.md](references/tuning-and-troubleshooting.md).
 
 ---
 
@@ -144,101 +144,9 @@ When tracing root causes, use `fdr_alpha=0.05` on `find_anomalies` to ensure the
 
 **One-call root-cause tracing.** `trace_root_cause(primary_key, pattern_id)` returns a bounded DAG of evidence in one shot — root witness dimensions from `explain_anomaly`, an edge-counterparty branch (sorted by anomaly, not by transaction volume), a neighbour-contamination branch (with explicit `anomalous_cp_keys` and `revisits_root` clique flag), and a hub branch — replacing the manual `explain_anomaly → find_counterparties → contagion_score → π7 hub` chain below. Use it as the default first step when the user asks "why is this entity anomalous"; fall back to the manual chain only when `truncated=true` signals the bounded tree missed context you actually need.
 
-**Parameter cheatsheet.** Default call `trace_root_cause(pk, pid)` fits 90 % of investigations. Tune when:
-- **`edge_counterparty_top_n=2..5`** — expand multiple anomalous counterparties as separate subtrees. Needed when contagion shows 5+ anomalous cps and you want all of them recursively expanded, not just the single most anomalous.
-- **`max_depth=3..4`** — reach grand-counterparties for deep mule chains; usually depth=2 is enough because contagion branch already summarizes the neighbourhood.
-- **`branches_enabled=["neighbor_contamination"]`** — skip edge_counterparty + hub computation for a fast "is this entity network-contaminated?" query; avoids the full adjacency+π7 scans and is orders of magnitude faster than the default call. Also `["hub"]` for hub-only or `["edge_counterparty"]` for pure chain traversal.
-- **`contagion_min_counterparties=5`** — raise above default 3 on noisy sub-populations where even 3-cp contagion can be statistical noise; small-N contagion=1.0 is a well-known fake alert.
-- **`hub_pop_limit=<larger>`** — raise above the default on medium-sized anchor patterns where hub membership IS informative and the `π7` scan cost is acceptable; the default biases toward skipping hub for large populations.
-
-**Evidence interpretation — the clique signals.**
-- **`revisits_root` on a contagion branch** = the root entity appears in that node's anomalous counterparty list. Confirmed geometric clique — root and this cp are structurally tied and both anomalous. Raise severity one notch beyond raw contagion score.
-- **`previously_seen_as_cp_of: [X, Y]` in evidence** = within the current session, other trace_root_cause calls (on X and Y) reported *this* entity as their anomalous counterparty. Strong network-centre signal even when the current trace looks isolated. Agent workflow: investigate entity, then investigate its cps, then re-check the original entity — inter-call ledger surfaces clique without diffing multiple trees.
-- **`anomalous_cp_keys`** = the up-to-10 anomalous counterparty primary keys of this node. No extra `find_counterparties` call needed to drill down.
-- **`truncated: true`** = more evidence candidates were dropped than fit the `max_branches` / `max_total_nodes` caps. Rerun with higher caps or narrower `branches_enabled` to recover the dropped signal.
-
-**Session cache.** `trace_root_cause` caches `contagion_score` and `find_counterparties` per `(pattern_version, entity_key)` at the navigator instance level. Repeat traces on the same or overlapping entities in one session hit the cache and return near-instantly; the first cold trace on a large anchor pattern is the one that pays the adjacency-scan cost. Capped with LRU eviction to bound memory. Pattern rebuild invalidates automatically via version key.
-
-**Sample tree — structure template + concrete example:**
-
-Template — how the fields nest:
-
-```
-root: <entity_key> (severity=extreme)
-  top_dimensions: [{dim, kind, bregman, pct_of_total}, ...]
-  children:
-    - edge_counterparty: <cp_key_A> (severity=moderate)
-        via_dim: <witness_dim_from_root>
-        witness_counterparty_delta_rank_pct: <rank>
-        children:
-          - neighbor_contamination: <cp_key_A> (severity=high)
-              anomalous_cp_keys: [<root_key>, <peer_1>, ...]   ← root in list
-              revisits_root: [<root_key>]                      ← CLIQUE signal
-    - neighbor_contamination: <entity_key> (severity=low)
-        anomalous_cp_keys: [<cp_key_A>, <cp_key_B>]
-        previously_seen_as_cp_of: [<other_entity>]             ← INTER-CALL signal
-```
-
-Concrete example — what an actual confirmed-clique trace looks like:
-
-```json
-{
-  "root": {
-    "entity_key": "ACC-ROOT",
-    "role": "root",
-    "severity": "extreme",
-    "evidence": {
-      "top_dimensions": [
-        {"dim": "amount_out_std", "kind": "gaussian", "bregman": 67.4, "pct_of_total": 0.28},
-        {"dim": "sum_in", "kind": "gaussian", "bregman": 42.6, "pct_of_total": 0.18}
-      ],
-      "delta_norm": 25.16,
-      "conformal_p": 0.000004
-    },
-    "children": [
-      {
-        "entity_key": "ACC-MULE",
-        "role": "edge_counterparty",
-        "severity": "moderate",
-        "evidence": {
-          "via_dim": "amount_out_std",
-          "witness_counterparty_delta_rank_pct": 98.09
-        },
-        "children": [
-          {
-            "entity_key": "ACC-MULE",
-            "role": "neighbor_contamination",
-            "severity": "high",
-            "evidence": {
-              "contagion_score": 0.625,
-              "total_counterparties": 8,
-              "anomalous_counterparties": 5,
-              "anomalous_cp_keys": ["ACC-ROOT", "ACC-PEER1", "ACC-PEER2", "ACC-PEER3", "ACC-PEER4"],
-              "revisits_root": ["ACC-ROOT"]
-            }
-          }
-        ]
-      },
-      {
-        "entity_key": "ACC-ROOT",
-        "role": "neighbor_contamination",
-        "severity": "low",
-        "evidence": {
-          "contagion_score": 0.2,
-          "total_counterparties": 10,
-          "anomalous_counterparties": 2,
-          "anomalous_cp_keys": ["ACC-MULE", "ACC-OTHER"],
-          "previously_seen_as_cp_of": ["ACC-EARLIER-SUSPECT"]
-        }
-      }
-    ]
-  },
-  "summary": "Entity ACC-ROOT is extreme in account_pattern; primary witness: amount_out_std; branches found: edge_counterparty, neighbor_contamination; 3 nodes.",
-  "hop_count": 2,
-  "branches_explored": 3,
-  "truncated": false
-}
-```
+Read [references/root-cause-tools.md](references/root-cause-tools.md) when tuning or reading a trace:
+parameter cheatsheet, clique signals, session cache, a sample tree, and the edge-level
+(`edge_potential`) and structural-motif (`score_motif`) evidence on `edge_counterparty` branches.
 
 **Read order for pattern-matching:** `root.severity` first → `revisits_root` (direct clique) → `previously_seen_as_cp_of` (inter-call clique) → `anomalous_cp_keys` (queue for deep-dive) → `truncated` (more evidence dropped — rerun with larger caps if needed).
 
@@ -248,72 +156,8 @@ Concrete example — what an actual confirmed-clique trace looks like:
 - `contagion_score ≥ 0.5` + `revisits_root` empty + root severity extreme → structural anomaly NOT contagion-driven; investigate root's own properties, not network.
 - All child severities `"low"` + root `"extreme"` → isolated primary-source anomaly, not network mule.
 
-### Edge-level anomaly — `edge_potential`
-
-`edge_potential` and `attract_edge_potential` score the relationship itself, not the endpoints. Score formula: distance between endpoint delta vectors × rarity prior (1/pair_tx_count, capped). High score means two geometrically divergent entities are connected by a rare pair — the classic layering signature.
-
-**When to use.**
-- After `trace_root_cause` surfaces an `edge_counterparty` branch — check the `edge_potential` field already attached in evidence. Score above sphere-specific threshold (typically > p95 of population) reinforces the counterparty signal.
-- Standalone ranking: `find_high_potential_edges(pattern_id, top_n=20, min_pair_count=1)` surfaces the most suspicious relationships in the whole pattern without committing to a specific suspect.
-- Entity-scoped: `find_high_potential_edges(pattern_id, top_n=10, from_key=suspect)` ranks the suspect's own edges — useful as a drill-down from `trace_root_cause`.
-
-**Example trace_root_cause `edge_counterparty` evidence with edge_potential:**
-
-```json
-{
-  "role": "edge_counterparty",
-  "entity_key": "ACC-MULE",
-  "severity": "moderate",
-  "evidence": {
-    "via_dim": "amount_out_std",
-    "witness_counterparty_delta_rank_pct": 98.09,
-    "edge_potential": {
-      "score": 12.5,
-      "delta_distance": 5.1,
-      "pair_tx_count": 1,
-      "effective_weight": 1.0
-    }
-  }
-}
-```
-
-Reading order: if both `witness_counterparty_delta_rank_pct` > 95 AND `edge_potential.score` is in the top-percentile of the pattern, you have a confirmed single-tx structurally-anomalous edge — treat as highest priority.
-
-### Structural motifs — `score_motif` and `find_high_potential_motifs`
-
-`score_motif` extends the edge_potential paradigm from one edge to k edges of a named structural pattern. Scoring is product-of-edge_potential across the motif's edges — a motif of rare edges is rare. Eight motif types in the closed vocabulary:
-
-- **`cycle_2`** (default window 24h): bidirectional A↔B round-trip. Covers Flash-Burst Round-Trip and Bidirectional Burst typologies.
-- **`cycle_3`** (default window 72h): directed triad A→B→C→A with strict temporal ordering. Covers Round-Tripping 3-Party, Long-Cycle, and Multi-Round-Tripping typologies.
-- **`fan_out`** (default window 168h): hub → k distinct targets (min k=3). Covers Offshore Hub and Concentrator (source side) typologies.
-- **`fan_in`** (default window 168h): k distinct sources → sink (min k=3). Mirror of `fan_out`. Covers Parallel Layering (destination side) and Concentrator / Sink typologies.
-- **`chain_k`** (default window 168h, open directed chain of parametric length 3 ≤ k ≤ 8): A→B→…→Z with no cycle closure, no node revisit, strict monotone timestamps, total span ≤ window. Covers Multi-Stage Layering and Multi-Jurisdiction Latency Chain typologies. Tune `k` to the layering depth under investigation.
-- **`structuring`** (default window 1h, amount-gated): open A→B→C→D with hop1 amount ≥ `amt1_min`, hops 2 and 3 ≤ `amt2_max`. Classic deposit-split-and-wire pattern for reporting-threshold evasion.
-- **`split_recombine`** (default window 24h, `min_k` default 3, `direction="forward"|"backward"`): diamond scatter-gather S → {M₁,…,Mₖ} → D with stacked-bipartite temporal order (all split-hops precede all recombine-hops within the window). Forward mode anchors the seed as the source; backward mode anchors the seed as the sink. Covers scatter-gather smurfing, parallel layering, and concentrator/sink (backward mode) typologies — amount-free counterpart to `structuring`.
-- **`bipartite_burst`** (default window 24h, `min_k` default 3, `min_m` default 3): complete K_{k,m} bipartite subgraph in a tight time window — k distinct sources each transact with every one of m distinct sinks. Greedy single-core enumeration: tries seed-as-source first, falls back to seed-as-sink. Covers coordinated mule-ring and parallel-collusion typologies; complements `fan_out` + `fan_in` by requiring completeness on both sides rather than density at a single anchor.
-
-**When to use.**
-- After `trace_root_cause` — the `edge_counterparty` branch now carries `motif_potential` automatically when the suspect seeds a motif that passes through the counterparty. Read the block alongside `edge_potential` and `witness_counterparty_delta_rank_pct`; a confirmed signal on all three means structural + per-edge + witness-dimension agreement.
-- Global screening: `find_high_potential_motifs(pattern_id, motif_type="cycle_3", top_n=20)` surfaces the most suspicious triads in the whole pattern. First call per (pattern, motif_type, window, …, k) is cold (30–90s on >500k-entity patterns) — subsequent calls hit the LRU cache.
-- Entity drill-down: `score_motif(suspect, motif_type="cycle_2", pattern_id)` checks whether the suspect is the seed of a high-score round-trip without committing to a specific counterparty.
-
-**`motif_potential` block in `trace_root_cause.edge_counterparty.evidence`:**
-
-```json
-{
-  "motif_potential": {
-    "motif_type": "cycle_2",
-    "score": 64.0,
-    "time_window_hours": 24,
-    "counterparty": "ACC-MULE"
-  }
-}
-```
-
-When `motif_type` is `cycle_3`, the block includes `ring: [seed, B, C]`. When `fan_out` or `fan_in`, it includes `k` (distinct neighbours in the window). When `chain_k`, it includes `path` (list of k keys) and `k`. When `split_recombine`, it includes `source`, `sink`, `intermediaries` (the M nodes), `k`, and `direction`. When `bipartite_burst`, it includes `sources`, `sinks`, `k`, `m`, and `seed_role` (`"source"` or `"sink"`).
-
-`explain_anomaly` tells you WHICH dimension is anomalous, with per-dim
-Bregman contributions when dimension kind tags are available. That is an
+`explain_anomaly` tells you WHICH dimension is anomalous: each dim's share
+of `delta_norm²` (`pct_of_total`) with its kind tag. That is an
 observation, not a finding.
 
 Before opening a case on any anomaly, check `reliability_flags` on the
@@ -373,17 +217,9 @@ classification later in the report: `high` + multi-source ⟹ CONFIRMED candidat
 `find_diverse_explanations` when the verdict is `contested` because
 `single_dim_driven` fired.
 
-**Multi-hypothesis investigation**: when `explain_anomaly` shows
-`reliability_flags.single_dim_driven=True`, call
-`find_diverse_explanations(primary_key, pattern_id, n_hypotheses=3)` to
-surface alternative hypotheses beyond the dominant dim. Top-anomalous
-entities often degrade to 1-2 hypotheses with
-`degraded_reason="insufficient_diverse_mass"` — that's correct semantic,
-signals the anomaly is genuinely single-dim. When the result returns
-2+ hypotheses with `diversity_score > 0.8`, each is an independent
-investigation path worth probing.
-
-**Compliance + anomaly cross-check** — `find_conformance_violations(pattern_id)` returns entities that broke declarative rules in `sphere.yaml`. Independent from `delta_norm` anomaly flags; compose via `investigate_entity` on top violators to test "does the rule break also reflect a geometric anomaly?" If yes — confirmed compliance issue with structural backing. If no — rule break alone, may indicate policy gap or genuine compliance violation without geometric signature.
+When `single_dim_driven` fires, or the sphere declares `conformance_rules:`, see
+[references/root-cause-tools.md](references/root-cause-tools.md) for `find_diverse_explanations`
+and the `find_conformance_violations` cross-check.
 
 The root cause chain goes deeper:
 
@@ -401,33 +237,14 @@ find_geometric_path(from_key, to_key, pattern_id) -> HOW are two anomalous entit
   scoring="geometric" (default) ranks by delta coherence; "anomaly" ranks by anomaly density along path.
 find_novel_entities(pattern_id) -> WHO deviates most from neighborhood expectation?
   High novelty_score = entity doesn't behave like its neighbors. Requires edge table.
-find_graph_geometry_tension(primary_key, pattern_id, line_id) -> behavioural-vs-edge 2x2 cross-tab.
-  hidden_cluster = similar-but-disconnected (lookalike cohort never seen together);
-  suspicious_links = connected-but-distant (out-of-peer-group). On AML-class data the signal
-  sits in suspicious-links count; hidden_cluster saturates at k_geometric.
-find_topological_anomalies(pattern_id) -> WHO sits in a local H_1 cycle in delta space.
-  Ranks by raw h1_max_persistence (not the auxiliary normalised topo_score). Empirical lift
-  is mid-rank — composition input for HMP / passive_scan, NOT a top-N drill-down replacement.
-simulate_edge_removal(primary_key, pattern_id, line_id, top_n=5) -> WHICH edges made this entity anomalous.
-  Per-edge counterfactual: for each candidate edge in the entity's adjacency, simulate removal and
-  rank by drop in delta_norm. Returns (edge_id, drop_pct, dominant_dim_label) per edge. v0 covers
-  relations + prop_columns dim classes; edge_dim_aggregations deferred. Investigator-drilldown only,
-  not a population scoring axis.
-simulate_counterparty_removal(primary_key, pattern_id, line_id, top_n=5) -> WHICH counterparty
-  made this entity anomalous. Counterparty-level counterfactual: aggregates all edges to one
-  counterparty per call; ranks counterparties by aggregate delta_norm drop. SAR-friendlier than
-  per-edge ("removing transactions with ACC-X drops delta_norm by 38 %") when the edge ranking
-  is too granular.
-select_minimal_joint_edge_removal(primary_key, pattern_id, line_id, target="flip", k=8)
-  -> SMALLEST edge set that flips the anomaly verdict. Greedy edge-set search; returns
-  edge_ids[] + delta_norm_after + flipped. The minimal joint set is the literal "evidence
-  of anomaly" — what you cite in the SAR narrative as the cause.
-simulate_dimension_change(primary_key, pattern_id, line_id, set_dimension, top_n=5) -> would this
-  entity still be anomalous if dim X were at value V. What-if dimension override: override one or
-  more raw shape-vector dims, recompute delta_norm under the pattern's calibration, and report
-  delta_norm_before/after, the anomaly-flag flip, and the new top witness dims. Companion to
-  simulate_edge_removal for non-edge dimensions. set_dimension is {dim_label: new_value} in raw
-  shape-vector units — call explain_anomaly first to pick dim_labels and read current values.
+```
+
+Tension, topology and counterfactual tools (`find_graph_geometry_tension`, `find_topological_anomalies`,
+`simulate_edge_removal`, `simulate_counterparty_removal`, `select_minimal_joint_edge_removal`,
+`simulate_dimension_change`) answer WHICH edges, counterparties or dim values made the entity
+anomalous — see [references/root-cause-tools.md](references/root-cause-tools.md).
+
+```
 find_witness_cohort(key, pattern_id) -> peers with similar anomaly profile
 ```
 
@@ -448,19 +265,21 @@ Always report the repair set from `explain_anomaly`. Format:
 
 ## Entity 360 (deep-dive on one entity)
 
+List tools answer in the compact format by default: an `omitted` map means numeric property columns or positional `delta` vectors were left out on purpose. For one entity's full numbers use `get_polygon` / `explain_anomaly` below; for a whole list repeat the call with `summary=false`.
+
 ```
 cross_pattern_profile(key, line_id)     -> multi-source risk overview
 goto(key, line_id) -> get_polygon(pattern_id) -> anomaly dimensions
-explain_anomaly(key, pattern_id)        -> per-dim Bregman contributions + kind tags
-  If bregman_contribution present: prefer it over abs_delta for root-cause ranking.
-  Each dim shows kind (gaussian/poisson/bernoulli) and pct_of_total.
-  Focus on dims with highest pct_of_total, not just highest abs_delta.
+explain_anomaly(key, pattern_id)        -> top_dimensions [{dim, kind, delta, pct_of_total}]
+  pct_of_total is the dim's share of delta_norm² (the metric behind is_anomaly);
+  top_dimensions[0] is the dim whose removal drops delta_norm most.
+  Each dim shows kind (gaussian/poisson/bernoulli) and signed delta.
   Interpret by kind: poisson dim unusual = count structure anomaly;
     gaussian dim extreme = magnitude anomaly; bernoulli dim = binary flag fired.
 anomaly_confidence (from get_polygon or find_anomalies result):
   >= 0.8  -> stable anomaly: high-confidence finding, proceed with full investigation
-  0.3-0.8 -> borderline: investigate but maintain FP possibility in assessment
-  < 0.3   -> likely false positive: verify with additional sources before escalating
+  0.5-0.8 -> borderline: investigate but maintain FP possibility in assessment
+  < 0.5   -> likely false positive: verify with additional sources before escalating
   (confidence is absent for populations > 50K, group_by_property, or use_mahalanobis patterns)
 dive_solid(key, pattern_id)             -> temporal history
 find_similar_entities(key, pattern_id)  -> geometric neighbors
@@ -469,45 +288,16 @@ find_similar_entities(key, pattern_id)  -> geometric neighbors
 find_counterparties(key, event_line, from_col, to_col, pattern_id) -> network + amount aggregates
 entity_flow(key, pattern_id)           -> net flow per counterparty (source/sink/mule)
 anomalous_edges(key, counterparty, pattern_id) -> event-level scoring of specific transactions
-discover_chains(key, pattern_id)        -> runtime chain discovery (no pre-built chains needed)
-  Works directly on the edge table via temporal BFS. Use when chain lines
-  are unavailable or you want chains from a specific entity without full extract.
-  Tune min_hops (default 2) and direction ("forward"/"backward"/"both").
-
-# When the sphere DOES have a chain anchor pattern (built from chain_lines:),
-# the chain-coherent investigative loop offers a stronger composition:
-find_chains_with_coherent_anomaly(chain_pattern_id, anchor_pattern_id, min_hops=3)
-  Population sweep — flag chains where ≥min_hops consecutive entities are
-  individually anomalous AND share the same dominant delta dim. Distinct
-  axis from find_anomalies on the chain pattern (which scores chain shape).
-anomaly_propagation_in_chain(chain_id, chain_pattern_id, anchor_pattern_id)
-  Drill into a single flagged chain — returns hop-by-hop anomaly trace
-  (is_anomaly + delta_norm + top_dim + delta_rank_pct per hop).
-classify_chain_typology(chain_id, ...)
-  Five-axis label per chain: shape / peak_position / position_in_chain /
-  extension_signals / dominant_top_dim. Triage tag without re-reading hops.
-extend_chain(chain_id, ..., direction="forward"|"backward")
-  Suggest extension entities at the boundary of the chain's anomalous run
-  using the chain reverse index. Anomalous candidates are "where to look
-  next" investigation targets.
-chain_witness_intersection(chain_id, chain_pattern, member_pattern,
-                           min_jaccard=0.5, top_k_witness=5)
-  Intersect the top witness dims of the chain's members.
-  coordinated=True (mean pairwise Jaccard >= min_jaccard) means every
-  member is anomalous for the same structural reason — a single
-  geometric diagnosis for the chain.
-chain_drift_trajectory(chain_id, chain_pattern, member_pattern, n_windows=4)
-  Per-member regime (normalizing / deteriorating / neutral) over
-  time-bucketed delta_norm, plus a chain-level rollup
-  (mixed when members disagree) + numeric drift score. Spots chains
-  jointly drifting toward anomaly before any single hop crosses θ.
-find_chains_for_entity(entity_key, chain_pattern_id)
-  Reverse lookup — list every chain a given entity participates in
-  (deduplicated; cyclic / self-revisiting chains surface once). The
-  deep-dive accessor for chain extension candidates returned by
-  extend_chain. See gds-fraud-investigator R9 for the full
-  flag→trace→label→cross-check→extend→deep-dive workflow.
+extract_chains(event_pattern_id, seed_nodes=[key])  -> exact chain extraction from this entity (no pre-built chains needed)
+  Uses every event for the seeded entity (no subsampling). Use when chain lines
+  are unavailable or you want chains from a specific entity.
+  Tune min_hops (default 2) and bidirectional=True for undirected search.
 ```
+
+When the sphere has a chain anchor pattern (built from `chain_lines:`), the chain-coherent
+loop tools are listed in [references/root-cause-tools.md](references/root-cause-tools.md).
+
+The one-call chain orchestrators (`investigate_chain`, `chain_full_loop_summary`) grade a chain `strong` / `moderate` / `weak`, or `inconclusive` when steps failed and their missing evidence could change the grade (listed in `summary.failed_steps`). Treat `inconclusive` as "not yet decided", never as a cleared chain — run the failed steps one by one with the granular chain tools before writing a verdict.
 
 `source_count >= 2` = investigate thoroughly. `source_count == 1` = likely FP.
 
@@ -542,53 +332,8 @@ If top-K anomalies are dominated by entities that LACK the ground truth property
 
 ## Cross-pattern lead-lag
 
-When investigating drift across multiple anchor patterns over the SAME entity
-line (e.g. `account_behavior_pattern` × `account_stress_pattern`), use
-`find_lead_lag(pattern_a, pattern_b)` to detect the temporal ordering of
-population-level shifts.
-
-**Default workflow:**
-
-```
-find_lead_lag(
-    pattern_a="account_behavior_pattern",
-    pattern_b="account_stress_pattern",
-    cohort="fixed",            # panel-clean centroid signal
-    fdr_method="storey",       # default — recovers power on rich-signal regimes
-)
-```
-
-**Read the response in this order:**
-
-1. `degenerate_signal` — if `true`, either centroid drift series has zero
-   variance (population is constant per epoch). Treat as no signal and stop.
-2. `agreement` — `"strong"` means centroid lag and volatility lag both
-   agree on direction and magnitude (most trustworthy); `"weak"` means
-   both channels show movement but disagree (population is heterogeneous);
-   `"divergent"` means no coherent lead-lag — do not report a `lag` claim.
-3. `is_significant` — `True` when `abs(correlation) > max_corr_threshold`
-   (peak Bonferroni-adjusted threshold). Reliable headline gate.
-4. `lag` — peak lag in epochs (positive = `pattern_a` leads `pattern_b`).
-   Multiply by the temporal `window` (sphere config) for wall-clock units.
-5. `top_dim_pairs` — even when `is_significant=False`, the top entries
-   ranked by ascending `q_value` (then |corr|) surface the strongest
-   leading dim pairs for hypothesis generation. The displayed pairs may
-   not be FDR-significant on small `N` because Bonferroni-over-lags + BH
-   over `D_A * D_B` pairs is intentionally conservative.
-
-**Drill-down:** pass `entity_key=...` to replace the population centroid
-with that entity's own delta trajectory. Useful for case storytelling
-("for customer X, behavior_change preceded stress_change by 2 epochs"),
-but per-entity reliability is `"low"` at most realistic N.
-
-**Verbose mode:** `verbose=True` returns the full `D_A × D_B` matrix in
-`per_dim_pairs` (sorted by ascending q-value); use when you need to scan
-the full breakdown rather than the top 10.
-
-**Limit reminder:** `find_lead_lag` requires both patterns to share the
-underlying entity space — `cohort="fixed"` raises empty-cohort otherwise.
-On disjoint entity spaces (e.g. accounts vs chains in AML) `cohort="all"`
-typically lands in `degenerate_signal=true`.
+For drift across two anchor patterns over the SAME entity line, use `find_lead_lag` — the
+default call and how to read it are in [references/population-analyses.md](references/population-analyses.md).
 
 ## False positive assessment
 
@@ -600,7 +345,7 @@ For every anomaly finding, consider whether it is a true positive or false posit
 - Use `metric="cosine"` when comparing anomaly profile shape regardless of severity — "same type of anomaly, different scale"
 - Use `dim_mask` to focus similarity on dimensions from `anomaly_dimensions` output — finds entities similar only in the dimensions that drive the anomaly, ignoring irrelevant ones
 - Use `find_anomalies(metric="Linf")` to catch single-dimension spikes that L2 norm dilutes — entities with one extreme dimension but normal on others
-- Use `find_anomalies(metric="bregman")` to rank by distribution-aware Bregman divergence — better ranking on mixed-type patterns (counts + amounts + binary flags). Particularly effective when `dimension_kinds` shows a mix of poisson/gaussian/bernoulli
+- Read `bregman_divergence` on `find_anomalies` results (distribution-aware) next to `delta_norm` — the better signal on mixed-type patterns (counts + amounts + binary flags), particularly when `dimension_kinds` shows a mix of poisson/gaussian/bernoulli
 - Dormant/inactive entities being anomalous is expected, not a finding
 
 Classify every finding as:
@@ -681,9 +426,9 @@ lead_score = 0.35 × anomaly_strength
 
 | Anti-pattern | Fix |
 |---|---|
-| `is_anomaly` tells you THAT, not WHY | Check `anomaly_dimensions` via explain_anomaly; use `bregman_contribution` + `kind` when available |
+| `is_anomaly` tells you THAT, not WHY | Check `top_dimensions` via explain_anomaly: `pct_of_total` (share of `delta_norm²`) ranks the drivers, `kind` says what type of signal each one is |
 | `find_similar_entities` finds shape twins, not transaction partners | Use `find_counterparties` for network relationships |
-| Using `find_chains_for_entity` when chain lines do not exist | Use `discover_chains` — works on edge table directly, no pre-built chains needed |
+| Using `find_chains_for_entity` when chain lines do not exist | Use `extract_chains(event_pattern_id, seed_nodes=[key])` — works without pre-built chains, uses every event for the seeded entity |
 | Calling edge-dependent tools without checking edge availability | Run `edge_stats(pattern_id)` first — null means no edges |
 | `goto()` then `get_polygon()` in parallel | Always sequential — goto sets position, get_polygon reads it |
 | Binary geometry has identical deltas for all anomalies | Use aggregate counts instead |
@@ -715,19 +460,8 @@ Every finding must include a concrete remediation step — not just
 
 ## When things don't work
 
-- **Tool returns empty results** — try different parameters, wider sample,
-  or a different pattern. Adjust `top_n`, `limit`, or filters.
-- **Tool errors** — check pattern_id and version, verify sphere is open.
-  If the error persists, report it rather than retrying in a loop.
-- **No anomalies found** — not every sphere has every anomaly type.
-  Report "no signal detected" as a valid finding.
-- **check_anomaly_batch returns all normal for "bad" keys** — the pattern
-  may not capture the relevant signal. Try other patterns or composite_risk.
-- **dive_solid returns no temporal slices** — temporal data may not exist
-  for this pattern. Skip temporal root cause and note it in the report.
-- **contrast_populations shows small effect sizes** — the anomaly may be
-  spread across many dimensions rather than concentrated in one. Check
-  individual dimensions rather than relying on the top-1.
+Empty results, tool errors, no anomalies, or missing temporal data: see
+[references/tuning-and-troubleshooting.md](references/tuning-and-troubleshooting.md).
 
 ---
 
@@ -742,49 +476,8 @@ Every finding must include a concrete remediation step — not just
 
 Full investigation examples: [references/examples.md](references/examples.md)
 
-## Find hidden influencers — entities defining what "normal" means
+## Hidden influencers and anomaly by absence
 
-Standard anomaly detection asks "how far is this entity from normal?". The inverse question is "how much does this entity SHAPE what 'normal' means?". A hidden influencer has high impact on coordinate system calibration but LOW anomaly score — invisible to anomaly scans, yet removing it shifts μ/σ enough to flip other entities' classifications.
-
-```
-mcp__hypertopos__find_calibration_influencers(
-    pattern_id="<pattern>",
-    classify="hidden",
-    top_n=10,
-)
-```
-
-Returns entries with `total_impact` (high), `delta_norm` (low), `classification="hidden"`, `top_dim_contributions[]` (which dims drive the impact). For coordinated detection: collect 2-5 candidates and pass as one group to `find_group_influence` — `reinforcing_factor > 1.5` confirms coordinated pull.
-
-Common operational triggers:
-- **Data quality audit** — hidden influencer may be a duplicated record warping the entire coordinate system. Find → fix data → rebuild → previously-masked anomalies surface.
-- **Adversarial AML** — coordinated account injection to shift coordinates and mask fraud is the canonical hidden-influencer signature.
-- **Explaining anomaly flux** — when `compare_calibrations` shows population shifted between epochs, hidden influencer analysis explains WHY.
-
-`verbose=True` adds `cascading_flip_count` per entry — count of OTHER entities that flip is_anomaly classification after this entity's removal. Use when the candidate has high impact but you need a quantitative "blast radius" before recommending exclusion.
-
-## Anomaly by absence — `find_density_gaps`
-
-`find_anomalies` surfaces entities at unusual positions in the geometry. `find_density_gaps` answers the inverse: which combinations of dim values **should** be populated under the independence null but are not? Useful when the investigation shifts from "who is anomalous" to "what's structurally missing".
-
-```python
-result = mcp__hypertopos__find_density_gaps(
-    pattern_id="account_pattern", top_n=5,
-)
-
-for gap in result["gaps"]:
-    print(
-        f'{gap["dim_i"]} ∈ [{gap["delta_range_i"][0]:.2g}, {gap["delta_range_i"][1]:.2g}] '
-        f'AND {gap["dim_j"]} ∈ [{gap["delta_range_j"][0]:.2g}, {gap["delta_range_j"][1]:.2g}] '
-        f'— observed {gap["observed"]}, expected {gap["expected"]:.1f}, '
-        f'q={gap["q_value"]:.2e}'
-    )
-```
-
-**Range space note:** `delta_range_*` is in **z-score (delta) space**, NOT raw property units. Dim labels with the `_d_` prefix mean "delta of <property>"; e.g. `_d_tx_count ∈ [-0.6, -0.4]` is "tx_count z-scored against the population sits between -0.6 σ and -0.4 σ". Raw-property-range mapping is a follow-up; today inverse-transform from points table is your job if you want raw units in the narrative.
-
-**When the gap is real:** independence + uniform-marginal expectation says the bin should hold ~N entities, observed is far below, q ≤ α after BH. Interpretation: there's structural avoidance of this combination — possibly business logic, regulatory cutoff, or a class of entities that exits when both features cross specific thresholds together.
-
-**When the gap is a binning artefact (FP):** filter `find_anomalies(filter=delta_range_i AND delta_range_j)` and check the count. If the count is non-zero the cell was mis-binned at the histogram edge; deprioritise the cell. The probe report and tests cover the boundary cases, but real-data gaps benefit from one-shot manual TP-verify before acting on them.
-
-**Excluded dims:** bernoulli, degenerate, and very sparse (<30 finite values) dims are auto-excluded and reported in `excluded_dims` with `reason`. If an expected dim is missing from the gap report, look here first.
+`find_calibration_influencers(classify="hidden")` finds entities that shape what "normal"
+means; `find_density_gaps` finds dim combinations that should be populated but are not.
+Both are in [references/population-analyses.md](references/population-analyses.md).

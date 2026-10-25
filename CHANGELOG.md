@@ -6,6 +6,40 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.9.0] — 2026-10-25
+
+### Changed
+
+- Skills no longer suggest FDR filtering on hub or drift rankings or the rank p-value method; FDR guidance applies to anomaly and boundary search with χ² p-values only.
+- `gds-monitor` — `compare_calibrations` applies after a `recalibrate` too, not only after a rebuild.
+- `gds-sphere-designer` — drops the note about chain caching; chains are extracted on every build.
+- `gds-monitor` now guides the safe-recalibration-via-branch workflow: recalibrate on a branch with optional `exclude_keys`, compare against main with `compare_branches`, then promote or delete the branch.
+- `gds-fraud-investigator` now includes branch-isolated exclusion calibration as a named advanced workflow: exclude identified hidden influencers on a branch, inspect which entities flip anomaly status via `compare_branches`, and promote or discard.
+- `gds-explorer` notes that `open_sphere(path, branch=...)` opens a named branch and `manage_branch("list")` lists available branches.
+- `gds-sphere-designer`: incremental ingest documents the `hypertopos sphere ingest` CLI verb and staging risky ingests on a branch before promoting them.
+- `gds-explorer` routes binary-FK graph questions to `get_polygon` / `jump_polygon` and `find_common_relations`.
+- Updated all skill recipes to use `extract_chains(pattern_id, seed_nodes=[key])` in place of the removed `discover_chains`; seeded runs are exact (no sampling), `bidirectional=True` replaces the former `direction="both"`, and `top_n` replaces `max_chains` where it limited the returned list.
+- gds-fraud-investigator: an `investigate_chain` run with failed steps is `inconclusive`, not a cleared chain; `consensus_classification` always scores the focal entity.
+- gds-detective, gds-scanner: per-dim FDR fields are `q_values_per_dim` as a `{dim: q}` map and `dominant_q_dim`; gds-analyst: consensus always scores the focal entity; gds-fraud-investigator: edge rank field is `score_rank_pct_global`.
+- gds-explorer: how to aggregate an event pattern per sender or receiver when it relates to the same line twice (`group_by_relation`).
+- `gds-monitor`: `dim_quality_warnings` remediation is read from `sphere_overview`'s top-level `advice_by_warning_type` map.
+- gds-investigator, gds-detective, gds-fraud-investigator, gds-scanner and gds-analyst read `top_dimensions[].pct_of_total` and `dominant_dim_share` as shares of `delta_norm²` (`top_dimensions[0]` is the dimension whose removal drops `delta_norm` most); the stale Bregman-contribution guidance is removed.
+- gds-monitor: a busy-then-silent entity has no drift (`num_inactive_slices`); look for it with `find_anomalies`.
+- The largest skills (sphere designer, investigator, fraud investigator, detective) keep a shorter SKILL.md with a copyable checklist and link to reference files for detail; every skill states what it is for and when to use it.
+- Links to the external-chains guide resolve on the public repository, and the source distribution now includes each skill's reference files.
+- `gds-explorer` and `gds-investigator`: an `omitted` map in a tool response means the compact format left subtrees out on purpose; the skills say how to get them (`summary=false`, `get_polygon`, or `open_sphere(response_format="full")`).
+
+### Fixed
+
+- Tool-call examples across the skills use the tools' real parameter names (e.g. `top_n` not `limit`, `primary_key` not `key` / `entity_key`, `event_pattern_id` for `aggregate`, `home_line_id` for `passive_scan`, `window_a_from`… for `compare_time_windows`); examples of `combine_anomaly_pvalues`, `classify_detector_consensus`, `select_minimal_joint_edge_removal` and a time-bounded event lookup are rewritten to the calls those tools actually accept.
+- Skills no longer recommend `find_anomalies(metric="bregman")`, which the tool rejects; for mixed-kind patterns they point to the `bregman_divergence` score every `find_anomalies` result carries next to `delta_norm`.
+- Skills now document correct tool signatures and return values: `compare_time_windows` (not `contrast_populations`) for before/after population shift; `combine_anomaly_pvalues(pattern_id, detectors=[...])` correct call form; `anomaly_confidence` triage bands aligned to `>= 0.8` stable / `0.5–0.8` borderline / `< 0.5` low-confidence across all skills; `classify_detector_consensus` label corrected to `single_detector_signal`; calibration epoch comparison documented without the non-existent `list_calibration_versions` tool; `dim_quality_warnings` count updated to six (adding `non_normal_dim`); `compare_entities` documented as a single-pair call with `(key_a, key_b, pattern_id)` signature.
+- The sphere-designer and monitor skills no longer advise a `kind:` YAML key that does not exist, and the edge-aggregations reference gives the correct composite separator default (`|`).
+- Skills use the current MCP parameter names (`primary_key` as the first argument, `top_n` instead of `limit`), drop calls to tools that do not exist, and read the current response shapes (`{"results": [...]}`, `score_rank_pct_global` on edges).
+- Skills cover snapshot sessions (`stale` in `get_session_stats`), calibration epochs written by `recalibrate`, branch trials with `exclude_keys`, `inconclusive` chain verdicts and the error raised for an unknown parameter; the README lists these shared conventions.
+- gds-fraud-investigator: the extension step notes that `extend_chain` never returns the chain's own next / previous hop.
+- gds-detective physical-plausibility recipe uses real `find_anomalies(rank_by_property=..., rank_order=..., top_n=...)` calls; gds-explorer mentions `rank_order="asc"` for the lowest values.
+
 ## [0.8.1] — 2026-06-01
 
 ### Changed

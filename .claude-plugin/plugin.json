@@ -1,7 +1,7 @@
 {
   "name": "hypertopos-skills",
   "description": "Agent skills for navigating Geometric Data Spheres via hypertopos MCP",
-  "version": "0.2.1",
+  "version": "0.9.0",
   "homepage": "https://github.com/hypertopos/",
   "repository": "https://github.com/hypertopos/hypertopos-skills",
   "license": "Apache-2.0",

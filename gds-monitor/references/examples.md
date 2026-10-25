@@ -5,7 +5,7 @@ returns and how to interpret it.
 
 ## Event Rate Divergence — Example
 
-**Call:** `aggregate(pattern_id="invoice_pattern", group_by_line="suppliers", geometry_filters={"is_anomaly": true})`
+**Call:** `aggregate(event_pattern_id="invoice_pattern", group_by_line="suppliers", geometry_filters={"is_anomaly": true})`
 
 **Output (key fields):**
 ```json
@@ -35,9 +35,9 @@ entity level. Investigate with drift detection."
 
 ## Windowed Volume Comparison — Example
 
-**Call (Period A):** `aggregate(pattern_id="invoice_pattern", group_by_line="suppliers", metric="count", time_from="2025-01-01", time_to="2025-03-31", limit=20)`
+**Call (Period A):** `aggregate(event_pattern_id="invoice_pattern", group_by_line="suppliers", metric="count", time_from="2025-01-01", time_to="2025-03-31", top_n=20)`
 
-**Call (Period B):** `aggregate(pattern_id="invoice_pattern", group_by_line="suppliers", metric="count", time_from="2025-04-01", time_to="2025-06-30", limit=20)`
+**Call (Period B):** `aggregate(event_pattern_id="invoice_pattern", group_by_line="suppliers", metric="count", time_from="2025-04-01", time_to="2025-06-30", top_n=20)`
 
 **Output Period A (key fields):**
 ```json

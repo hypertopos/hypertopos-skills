@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "hypertopos-skills"
-version = "0.8.1"
+version = "0.9.0"
 description = "Investigation workflows for AI agents exploring geometric data spaces"
 requires-python = ">=3.12"
 license = "Apache-2.0"
@@ -32,6 +32,7 @@ packages = [
 [tool.hatch.build.targets.sdist]
 include = [
     "gds-*/SKILL.md",
+    "gds-*/references/*.md",
     "LICENSE",
     "README.md",
     "CHANGELOG.md",

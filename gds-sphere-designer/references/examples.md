@@ -371,3 +371,20 @@ patterns:
 **When to use:** Track any property that should be non-null for every entity (nationality, segment, status, category). Do not track high-cardinality properties like free-text fields — the tracking overhead is proportional to cardinality.
 
 **Common mistake:** Tracking `tracked_properties` on event lines instead of anchor lines. The feature is designed for entity-level data quality — tracking null rates on event columns is better handled via source-level validation in the prepare script.
+
+## Quick examples
+
+### Quick example: Build from parquet
+
+"I have customers.parquet and orders.parquet" -- Ask for PKs and FK columns,
+generate sphere.yaml (anchor + event + derived dims), build, verify anomaly_rate ~5%.
+
+### Quick example: Tune anomaly rate
+
+"Anomaly rate is 25%" -- Raise `anomaly_percentile` from 95 to 99, fast rebuild
+with `--no-chains --no-temporal`, verify rate drops to ~1-5%.
+
+### Quick example: Add temporal
+
+"Track behavior changes over time" -- Add `temporal:` section with pattern,
+event_line, timestamp_col, window. Rebuild with `--no-chains`, verify slice count.

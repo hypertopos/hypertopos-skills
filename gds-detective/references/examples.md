@@ -12,8 +12,8 @@ Catches multi-dimensional joint deviations invisible to single-column profiling.
 **Step 1:** Two aggregate calls on the same event pattern.
 
 ```
-aggregate(pattern_id="ev_orders", group_by_line="suppliers",
-          geometry_filters={"is_anomaly": true}, limit=50)
+aggregate(event_pattern_id="ev_orders", group_by_line="suppliers",
+          geometry_filters={"is_anomaly": true}, top_n=50)
 ```
 ```json
 {
@@ -27,7 +27,7 @@ aggregate(pattern_id="ev_orders", group_by_line="suppliers",
 ```
 
 ```
-aggregate(pattern_id="ev_orders", group_by_line="suppliers", limit=50)
+aggregate(event_pattern_id="ev_orders", group_by_line="suppliers", top_n=50)
 ```
 ```json
 {
@@ -65,7 +65,7 @@ Catches entities that look normal in aggregate but inflate specific subgroups.
 **Step 1:** Dual ranking on a composite pattern.
 
 ```
-aggregate_anomalies(pattern_id="comp_line_items", group_by="supplier_key", limit=50)
+aggregate_anomalies(pattern_id="comp_line_items", group_by="supplier_key", top_n=50)
 ```
 ```json
 {
@@ -106,8 +106,8 @@ Detects event splitting or seasonal spikes by comparing yearly windows.
 **Step 1:** Get temporal range, then aggregate per year.
 
 ```
-aggregate(pattern_id="ev_orders", group_by_line="suppliers",
-          time_from="2022-01-01", time_to="2023-01-01", limit=50)
+aggregate(event_pattern_id="ev_orders", group_by_line="suppliers",
+          time_from="2022-01-01", time_to="2023-01-01", top_n=50)
 ```
 ```json
 {
@@ -119,8 +119,8 @@ aggregate(pattern_id="ev_orders", group_by_line="suppliers",
 ```
 
 ```
-aggregate(pattern_id="ev_orders", group_by_line="suppliers",
-          time_from="2023-01-01", time_to="2024-01-01", limit=50)
+aggregate(event_pattern_id="ev_orders", group_by_line="suppliers",
+          time_from="2023-01-01", time_to="2024-01-01", top_n=50)
 ```
 ```json
 {
@@ -132,8 +132,8 @@ aggregate(pattern_id="ev_orders", group_by_line="suppliers",
 ```
 
 ```
-aggregate(pattern_id="ev_orders", group_by_line="suppliers",
-          time_from="2024-01-01", time_to="2025-01-01", limit=50)
+aggregate(event_pattern_id="ev_orders", group_by_line="suppliers",
+          time_from="2024-01-01", time_to="2025-01-01", top_n=50)
 ```
 ```json
 {
@@ -156,8 +156,8 @@ SUPP-1234 shows a 2.6x spike in 2023 vs adjacent years. This is a burst.
 **Step 2:** Drill down into quarters of the spike year.
 
 ```
-aggregate(pattern_id="ev_orders", group_by_line="suppliers",
-          time_from="2023-07-01", time_to="2023-10-01", limit=50)
+aggregate(event_pattern_id="ev_orders", group_by_line="suppliers",
+          time_from="2023-07-01", time_to="2023-10-01", top_n=50)
 ```
 ```json
 {
@@ -180,7 +180,7 @@ Finds normal entities surrounded by anomalous geometric neighbors.
 **Step 1:** Start from a known anomalous entity and find its neighbors.
 
 ```
-find_similar_entities(entity_key="SUPP-1234", pattern_id="pt_suppliers", top_n=10)
+find_similar_entities(primary_key="SUPP-1234", pattern_id="pt_suppliers", top_n=10)
 ```
 ```json
 {
@@ -199,7 +199,7 @@ find_similar_entities(entity_key="SUPP-1234", pattern_id="pt_suppliers", top_n=1
 **Step 2:** Check the normal neighbor's own neighborhood.
 
 ```
-find_similar_entities(entity_key="SUPP-4001", pattern_id="pt_suppliers", top_n=10)
+find_similar_entities(primary_key="SUPP-4001", pattern_id="pt_suppliers", top_n=10)
 ```
 ```json
 {
@@ -223,7 +223,7 @@ find_similar_entities(entity_key="SUPP-4001", pattern_id="pt_suppliers", top_n=1
 **Step 3:** Verify with batch check.
 
 ```
-check_anomaly_batch(keys=["SUPP-1234","SUPP-4002","SUPP-4010","SUPP-4011",
+check_anomaly_batch(primary_keys=["SUPP-1234","SUPP-4002","SUPP-4010","SUPP-4011",
     "SUPP-4012","SUPP-4014","SUPP-4015","SUPP-4016"], pattern_id="pt_suppliers")
 ```
 ```json
@@ -264,7 +264,7 @@ Pick entities at rank 20-40 (moderate displacement, not top-10).
 **Step 2:** Dive into temporal history.
 
 ```
-dive_solid(entity_key="SUPP-2345", pattern_id="pt_suppliers")
+dive_solid(primary_key="SUPP-2345", pattern_id="pt_suppliers")
 ```
 ```json
 {
@@ -283,7 +283,7 @@ dive_solid(entity_key="SUPP-2345", pattern_id="pt_suppliers")
 
 Compare with a linear drift entity:
 ```
-dive_solid(entity_key="SUPP-6789", pattern_id="pt_suppliers")
+dive_solid(primary_key="SUPP-6789", pattern_id="pt_suppliers")
 ```
 ```json
 {
@@ -303,7 +303,7 @@ This entity has monotonically increasing deltas and high displacement (1.20). Th
 **Step 3:** Find the cohort sharing the arch trajectory.
 
 ```
-find_drifting_similar(entity_key="SUPP-2345", pattern_id="pt_suppliers", top_n=20)
+find_drifting_similar(primary_key="SUPP-2345", pattern_id="pt_suppliers", top_n=20)
 ```
 ```json
 {
@@ -345,7 +345,7 @@ find_regime_changes(pattern_id="pt_suppliers", n_regimes=5)
 
 ```
 find_anomalies(pattern_id="pt_suppliers",
-               property_filters={"region": "EUROPE"}, limit=50)
+               property_filters={"region": "EUROPE"}, top_n=50)
 ```
 ```json
 {
@@ -359,7 +359,7 @@ find_anomalies(pattern_id="pt_suppliers",
 
 ```
 find_anomalies(pattern_id="pt_suppliers",
-               property_filters={"region": "ASIA"}, limit=50)
+               property_filters={"region": "ASIA"}, top_n=50)
 ```
 ```json
 {
@@ -381,8 +381,8 @@ find_anomalies(pattern_id="pt_suppliers",
 
 ```
 compare_time_windows(pattern_id="pt_suppliers",
-    pre_start="2023-01-01", pre_end="2023-06-15",
-    post_start="2023-06-15", post_end="2024-01-01")
+    window_a_from="2023-01-01", window_a_to="2023-06-15",
+    window_b_from="2023-06-15", window_b_to="2024-01-01")
 ```
 ```json
 {
@@ -405,7 +405,7 @@ Detects gradual population-wide shifts that accumulate over time.
 **Step 1:** Find drifting entities.
 
 ```
-find_drifting_entities(pattern_id="pt_pricing", window=365, top_n=10)
+find_drifting_entities(pattern_id="pt_pricing", top_n=10)
 ```
 ```json
 {
@@ -423,7 +423,7 @@ find_drifting_entities(pattern_id="pt_pricing", window=365, top_n=10)
 **Step 2:** Verify monotonic trajectory.
 
 ```
-dive_solid(entity_key="PROD-101", pattern_id="pt_pricing")
+dive_solid(primary_key="PROD-101", pattern_id="pt_pricing")
 ```
 ```json
 {
@@ -454,7 +454,7 @@ No changepoint detected. This confirms gradual collective drift (not a regime st
 
 Compare with a NON-drifting entity for contrast:
 ```
-dive_solid(entity_key="PROD-500", pattern_id="pt_pricing")
+dive_solid(primary_key="PROD-500", pattern_id="pt_pricing")
 ```
 ```json
 {
@@ -481,7 +481,7 @@ Catches entities that escape detection in their primary pattern but are flagged 
 **Step 1:** Cross-pattern profile.
 
 ```
-cross_pattern_profile(key="SUPP-5678", line_id="suppliers")
+cross_pattern_profile(primary_key="SUPP-5678", line_id="suppliers")
 ```
 ```json
 {
@@ -503,7 +503,7 @@ cross_pattern_profile(key="SUPP-5678", line_id="suppliers")
 **Step 2:** Check composite risk for borderline entities.
 
 ```
-composite_risk(key="SUPP-5678", line_id="suppliers")
+composite_risk(primary_key="SUPP-5678", line_id="suppliers")
 ```
 ```json
 {
@@ -530,7 +530,7 @@ Population-level screening for confirmation, not primary discovery.
 **Step 1:** Broad scan at threshold=1.
 
 ```
-passive_scan(line_id="suppliers", threshold=1)
+passive_scan(home_line_id="suppliers", threshold=1)
 ```
 ```json
 {
@@ -549,7 +549,7 @@ passive_scan(line_id="suppliers", threshold=1)
 **Step 2:** Narrow to confirmed multi-source at threshold=2.
 
 ```
-passive_scan(line_id="suppliers", threshold=2)
+passive_scan(home_line_id="suppliers", threshold=2)
 ```
 ```json
 {

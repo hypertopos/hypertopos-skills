@@ -1,6 +1,8 @@
 # Declarative Motif Cheatsheets
 
 > Loaded on demand when designing custom motif queries via `find_motif_by_hops`. The closed-vocab atoms (`find_motif_structuring`, `cycle_2`, `fan_out`, `fan_in`, `bipartite_burst`, `chain_k`, `split_recombine`) cover the standard typologies; reach for `find_motif_by_hops` only when the closed vocab doesn't fit the query shape.
+>
+> The examples below use the Python navigator (`nav.find_motif_by_hops`, `HopPredicate` objects, result count `max_results`). The MCP tool `find_motif_by_hops` takes `hops` as a list of dicts with the same predicate fields, and names the result count `top_n`.
 
 ## Declarative structuring chain detection
 

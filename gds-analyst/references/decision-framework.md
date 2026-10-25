@@ -102,7 +102,7 @@ Step 3: If arch or V found:
         → full cohort sharing the trajectory shape
 
 Step 4: For the cohort:
-        get_event_polygons(key) or find_counterparties
+        get_event_polygons(key, event_pattern) or find_counterparties
         → what happened at the peak/trough of the arch?
 ```
 
@@ -135,7 +135,7 @@ Step 2: MANDATORY even for suspected artifacts:
         For each categorical property with <50 distinct values:
           find_anomalies(pattern,
                          property_filters={"<prop>": "<value>"},
-                         limit=50)
+                         top_n=50)
         → which segment has disproportionately more anomalies?
 
 Step 3: contrast_populations(pattern,
@@ -172,8 +172,8 @@ Step 1: sphere_overview(detail="full")
 
 Step 2: ALWAYS run manual check too (catches entities above theta):
         CALL A: aggregate(event_pattern, group_by_line=anchor,
-                          geometry_filters={"is_anomaly": true}, limit=50)
-        CALL B: aggregate(event_pattern, group_by_line=anchor, limit=50)
+                          geometry_filters={"is_anomaly": true}, top_n=50)
+        CALL B: aggregate(event_pattern, group_by_line=anchor, top_n=50)
         → rate = call_a_count / call_b_count per entity
         → >15% = suspect (baseline ~5%), >30% = strong signal
 
@@ -186,9 +186,9 @@ Step 3: For entities with high rate AND low static delta_norm:
           → identify burst year, then drill to quarter
 
 Step 4: For burst confirmed:
-        dive_solid(entity_key, anchor_pattern)
+        dive_solid(primary_key, anchor_pattern)
         → temporal history of the anchor during burst period
-        cross_pattern_profile(entity_key, line_id)
+        cross_pattern_profile(primary_key, line_id)
         → is the high event rate consistent across patterns?
 ```
 
@@ -211,11 +211,11 @@ Step 1: get_sphere_info() → identify composite patterns and their key columns
 
 Step 2: For EACH composite pattern — DUAL ranking (both calls required):
         CALL A: aggregate_anomalies(composite_pattern,
-                                    group_by="parent_key_col", limit=50)
+                                    group_by="parent_key_col", top_n=50)
                 → ranked by COUNT of anomalous composites (concentration)
 
         CALL B: find_anomalies(composite_pattern,
-                               rank_by_property="avg_dim", limit=50)
+                               rank_by_property="avg_dim", top_n=50)
                 → ranked by VALUE metric (per-unit inflation)
 
         Parents appearing in EITHER ranking = suspect.
@@ -277,10 +277,10 @@ Exploration budget split: orient 15% → detect 20% → scans 20%
 | Event count by entity | `aggregate` | `metric="count", time_from, time_to` |
 | Anomalous event count | `aggregate` | `geometry_filters={"is_anomaly": true}` |
 | Composite concentration | `aggregate_anomalies` | `group_by="parent_key_col"` |
-| Property distribution | `find_anomalies` | `rank_by_property="<dim>", limit=50` |
+| Property distribution | `find_anomalies` | `rank_by_property="<dim>", top_n=50` |
 | Segment filtering | `find_anomalies` | `property_filters={"<prop>": "<val>"}` |
 | Population contrast | `contrast_populations` | look at max single |d|, not average |
 | Root cause dimensions | `explain_anomaly` | note repair set + residual |
-| Event relationships | `find_counterparties` | `entity_key, event_line, from_col, to_col` |
+| Event relationships | `find_counterparties` | `primary_key, line_id, from_col, to_col` |
 | Polygon geometry | `get_polygon` | after `goto(key, line_id)` |
-| Segment full list | `search_entities` | `line_id, property, value` |
+| Segment full list | `search_entities` | `line_id, property_name, value` |

@@ -1,11 +1,11 @@
 ---
 name: gds-fraud-investigator
-description: AML/fraud detection and financial anomaly investigation via GDS geometric analysis — 3-phase process with 25 typology recipes. Use when user asks to "detect fraud", "screen for money laundering", "find suspicious accounts", "run AML scan", "investigate suspicious transactions", "typology detection", "passive scan for fraud", "detect insider trading", "find anomalous billing", "investigate suspicious transactions", or "financial crime detection". Use this skill for ANY financial anomaly investigation, not just AML. Requires hypertopos MCP server with a financial transaction sphere (account + pair + chain patterns).
+description: AML/fraud detection and financial anomaly investigation via GDS geometric analysis — 3-phase process with 25 typology recipes. Use when user asks to "detect fraud", "screen for money laundering", "find suspicious accounts", "run AML scan", "investigate suspicious transactions", "typology detection", "passive scan for fraud", "detect insider trading", "find anomalous billing", or "financial crime detection". Use this skill for ANY financial anomaly investigation, not just AML. Requires hypertopos MCP server with a financial transaction sphere (account + pair + chain patterns).
 license: Apache-2.0
 compatibility: Requires hypertopos MCP server with a financial transaction sphere (account, pair, chain patterns).
 metadata:
   author: Karol Kędzia
-  version: 0.8.0
+  version: 0.9.0
   mcp-server: hypertopos
 ---
 
@@ -21,9 +21,20 @@ Active navigation does NOT increase recall — it only helps verify suspects and
 false positives. The real detection power comes from multi-source passive scanning across
 all geometry layers.
 
+## Investigation checklist
+
+Copy this list and tick it off per screening run:
+
+- [ ] Phase 1: `passive_scan` run; suspects ordered by `cross_pattern_profile` risk
+- [ ] Phase 2: each suspect through Entity 360 (`investigate_entity` or the manual steps)
+- [ ] Pre-SAR gate: `assess_anomaly_certainty` and `consensus_classification` before escalation
+- [ ] FP elimination run on every escalated suspect
+- [ ] Phase 3: typology or R1–R11 recipe matched when the user asked for one
+- [ ] Failure Guards respected; `investigation_coverage` checked before closing
+
 ## Prerequisites — Edge Table Check
 
-Before using graph traversal tools (`find_geometric_path`, `discover_chains`), verify the
+Before using graph traversal tools (`find_geometric_path`, `extract_chains`), verify the
 sphere has an edge table for the relevant event pattern:
 
 ```
@@ -101,9 +112,8 @@ If `passive_scan` is not available, manually combine:
 
 ### FDR control and diverse selection
 
-When using `find_anomalies` for fraud screening, set `fdr_alpha=0.05` to apply Benjamini-Hochberg FDR control — false positives waste investigator time and erode trust in the alert pipeline, so controlling the false discovery rate is critical. When requesting K>10 results, use `select="diverse"` to surface different fraud typologies (structuring, layering, round-tripping) instead of 50 variants of the same high-volume pattern; this leverages submodular facility location to maximize typological coverage in the result set. Both parameters also apply to `attract_boundary`, `find_hubs`, and `find_drifting_entities`.
-
-**Adaptive Storey FDR.** On transaction event patterns whose delta distribution has a real null mass (normal accounts far below the alert threshold) plus an anomalous tail (genuine high-risk accounts), `fdr_method="storey"` combined with `p_value_method="chi2"` relaxes the BH threshold to recover 10–15% more candidates at the same α. Use this when the default BH top-K is systematically leaving edge cases that investigators later flag as true positives. Both parameters must be set together — Storey with rank p-values is a no-op. Keep the default `fdr_method="bh"` on account_stress-style patterns where every entity carries some stress signal, because there Storey cannot distinguish null mass from tail.
+Screen with `fdr_alpha=0.05` and `select="diverse"` for K>10; when to switch to Storey FDR is in
+[references/phase2-signals.md](references/phase2-signals.md).
 
 ### Recipe: Risk Triage
 
@@ -158,18 +168,14 @@ Full investigation of a single suspect:
 - `witness_cohort_size > 3` → anomaly signature is shared by non-connected peers
 - `find_novel_entities` surfaces entities whose geometry deviates from what their neighbors predict — catches entities that contagion and witness miss
 - `find_graph_geometry_tension` cross-tabs behavioural k-NN × graph adjacency. On AML-class data the discriminative signal is concentrated in `n_suspicious_total` (out-of-peer-group counterparties); the `hidden_cluster` cell saturates at `k_geometric` because behavioural similarity in delta space and direct counterparties are nearly disjoint sets — treat hidden_cluster as architectural completeness, not a fraud-rank lever
-- `find_topological_anomalies` ranks by local H_1 cycle persistence (raw `h1_max_persistence`, NOT the normalised `topo_score`). Empirical AUROC `+0.12–0.16` over `delta_norm` baseline on labelled fraud rings; lift is mid-rank rather than top-N — use as composition input for HMP / passive_scan, not as a top-N drill-down replacement
+- `find_topological_anomalies` ranks by local H_1 cycle persistence (raw `h1_max_persistence`, NOT the normalised `topo_score`). Its lift over the `delta_norm` baseline is mid-rank rather than top-N — use as composition input for HMP / passive_scan, not as a top-N drill-down replacement
 
 **One-call root-cause tracing.** Instead of running steps 1–8 above manually, `trace_root_cause(suspect_pk, "<anchor_pattern>")` returns a bounded DAG of evidence in one shot — root witness dimensions, edge-counterparty branch (sorted by anomaly, not transaction volume — catches structural cps that high-volume sort would miss), neighbour-contamination branch with `anomalous_cp_keys` + `revisits_root` clique flag, hub branch when population ≤ `hub_pop_limit`. Use it as the default first pass during Phase 2 confirmation; drop into the manual chain only when `truncated=true` signals the tree missed context you need or when you explicitly want per-step control.
 
-**One-call full entity 360.** `investigate_entity(suspect_pk, "<anchor_pattern>", line_id="<event_pattern>")` chains polygon shape + explain_anomaly + witness cohort + chains + root_cause + graph_geometry_tension into one MCP call with per-step `steps_status` (partial failures surface without aborting). Entity-side analog of `investigate_chain` (0.6.7). Use as default Phase 2 entry point when you want one structured report rather than chaining 6 manual calls. Pass `chain_pattern_id="<chain_pattern>"` to populate chains; `include_per_edge_counterfactual=true` wires through to `simulate_edge_removal` (v0 covers relations + prop_columns dim classes; AML `account_pattern` returns empty under v0 because its edge-derived signal sits in `edge_dim_aggregations` — full coverage in a follow-up patch).
+**One-call full entity 360.** `investigate_entity(suspect_pk, "<anchor_pattern>", line_id="<event_pattern>")` chains polygon shape + explain_anomaly + witness cohort + chains + root_cause + graph_geometry_tension into one MCP call with per-step `steps_status` (partial failures surface without aborting). Entity-side analog of `investigate_chain`. Use as default Phase 2 entry point when you want one structured report rather than chaining 6 manual calls. Pass `chain_pattern_id="<chain_pattern>"` to populate chains; `include_per_edge_counterfactual=true` wires through to `simulate_edge_removal` (covers `relations` and `edge_dim_aggregations` dims; the `count_above_threshold` aggregation is held constant, and `event_dimensions` / `prop_columns` carry no per-edge contribution by design).
 
-**Counterfactual suite (4 tools).** Different questions, different aggregation level.
-
-- `simulate_edge_removal(suspect_pk, "<anchor_pattern>", line_id="<event_pattern>", top_n=5)` — "which transactions made this entity anomalous?". Ranks the entity's edges by contribution to `delta_norm`. For each edge: `(delta_norm_before, delta_norm_after, drop_pct, dominant_dim_label)`. v0 covers relations + prop_columns dim classes; on AML `account_pattern` returns empty under v0 because edge signal sits in `edge_dim_aggregations` held constant in v0.
-- `simulate_counterparty_removal(suspect_pk, "<anchor_pattern>", line_id="<event_pattern>", top_n=5)` — "which counterparty made this entity anomalous?". Aggregates all edges to one counterparty per call; ranks counterparties by aggregate `delta_norm` drop. Use when the edge-level ranking is too granular and you want a counterparty-level SAR narrative ("removing transactions with ACC-X drops delta_norm by 38 %").
-- `select_minimal_joint_edge_removal(suspect_pk, "<anchor_pattern>", line_id="<event_pattern>", target="flip", k=8)` — "smallest set of edges whose joint removal flips the anomaly verdict". Greedy edge-set search; returns the minimal `edge_ids[]` + `delta_norm_after` + `flipped` flag. SAR composition: the smallest joint set is the literal "evidence of laundering" that explains why this entity crosses θ.
-- `simulate_dimension_change(suspect_pk, "<anchor_pattern>", line_id="<event_pattern>", set_dimension={dim_label: new_value}, top_n=5)` — "would this entity still be anomalous if dim X were value V?". Override one or more raw shape-vector dims, recompute `delta_norm` under the pattern's calibration; reports `delta_norm_before/after`, the anomaly-flag flip, and new top witness dims. Companion to `simulate_edge_removal` for non-edge dimensions. Call `explain_anomaly` first to pick dim_labels and read current raw values.
+**Counterfactual suite (4 tools)** — edge, counterparty, minimal-edge-set and dimension what-ifs:
+see [references/phase2-signals.md](references/phase2-signals.md).
 
 **Multi-hypothesis explainer**: `find_diverse_explanations(primary_key, pattern_id, n_hypotheses=3)` returns K diverse dim sets, each a separate "why this account is anomalous" hypothesis. Use when triaging cases where `explain_anomaly` flags `single_dim_driven=True` — the primitive's `degraded_reason="insufficient_diverse_mass"` confirms the single-dim case; multiple returned hypotheses unlock parallel SAR narratives (one per dim cluster).
 
@@ -238,58 +244,30 @@ classification:
 - **`insufficient_data`** — every detector sits in its borderline band; no
   detector resolves the entity. Widen the detector set or recalibrate.
 
-If the entity is not in the scored sample, the response carries `found=false`
-with a note — raise `sample_size` (or pass `None` for the full population) and
-re-run. Gate rule of thumb: escalate to SAR only when
+The focal entity is always scored, even when the random sample missed it; `found=false`
+means it does not exist in the pattern. Gate rule of thumb: escalate to SAR only when
 `assess_anomaly_certainty` is `high`/`moderate` AND `consensus_classification`
 is `anomalous_consensus` (or a `moderate`/`high` certainty corroborated by a
 second pattern). A `contested` certainty or a `single_detector_signal`
 consensus is a hold-and-corroborate signal, not an escalation.
 
-**Fraud-specific tuning.**
-- **`edge_counterparty_top_n=3..5`** — mule networks typically involve multiple anomalous counterparties; default 1 shows only the single most anomalous cp. For Phase 3 escalation on high-risk suspects, raise to expand each anomalous cp as a separate subtree.
-- **`branches_enabled=["neighbor_contamination"]`** — fast targeted scan: for a batch of candidate suspects, contagion-only trace avoids the edge_counterparty recursion and π7 scan; orders of magnitude cheaper than default once cache is warm. Use to rank-by-contagion before committing to full traces on the top-N.
-- **`contagion_min_counterparties=5`** — raise default 3 for high-confidence fraud networks; filters out statistical noise from small-counterparty suspects.
-
-**Clique detection signals (read these on every trace).**
-- **`revisits_root: [keys]`** on a contagion branch = confirmed 2+ node clique with the root. Every name in this list transacted with the root AND is itself anomalous. Immediate Phase 3 escalation criterion.
-- **`previously_seen_as_cp_of: [X, Y]`** = session ledger signal: other suspects you already traced (X, Y) listed THIS entity as their anomalous cp. The entity is a shared counterparty across multiple confirmed suspects — high-value graph-centre node worth prioritising.
-- **`anomalous_cp_keys`** list → all 10+ anomalous neighbours available without a second `find_counterparties` call. Use directly as Phase 3 investigation queue.
+Fraud-specific `trace_root_cause` tuning and the clique signals to read on every trace
+(`revisits_root`, `previously_seen_as_cp_of`, `anomalous_cp_keys`) are in
+[references/phase2-signals.md](references/phase2-signals.md).
 
 High contagion (>0.3) + large witness cohort + high novelty = confirmed network pattern. Low contagion (<0.2) + empty cohort = isolated anomaly, deprioritize. Borderline contagion (0.2–0.3) = expand cautiously to one hop only before deciding.
 
-**Edge-level rare-pair detection — `find_high_potential_edges`.** AML layering often shows as a one-off transaction between two geometrically divergent accounts (high-income sender, dormant/low-history receiver). Node-level delta_norm misses it because each endpoint alone looks only borderline. `find_high_potential_edges(pattern_id, top_n=20, min_pair_count=1)` catches these by scoring the edge itself.
-
-- Use early in Phase 2 — run AFTER `find_anomalies` on the anchor pattern but BEFORE committing a full `trace_root_cause` on each candidate. High-edge-potential edges point directly at suspect pairs without requiring a candidate selection.
-- Cross-reference with `trace_root_cause.edge_counterparty.edge_potential` — if the same edge appears in both (top of find_high_potential AND enriched evidence on trace), that's a confirmed rare-pair layering signal worth immediate Phase 3 escalation.
-- Raise `min_pair_count=3` on spheres where legitimate frequent-but-large pairs (corporate payroll) dominate the top — shifts focus to truly one-off suspicious edges.
-
-**Dual-query playbook — singletons AND recurring suspects.** The default ranking with `min_pair_count=1` is dominated by one-off singleton pairs (classic placement/layering signature — AUROC 0.92 on AML HI-small). But recurring suspect pairs (a handful of transactions between two anomalous accounts) are a DIFFERENT fraud shape — e.g. structuring below reporting thresholds over several days. A single ranking call catches one shape; run BOTH:
-
-```
-# Pass 1: singletons (placement / one-off layering)
-find_high_potential_edges(pattern_id, top_n=20, min_pair_count=1)
-
-# Pass 2: recurring suspects (structuring / smurfing)
-find_high_potential_edges(pattern_id, top_n=10, min_pair_count=5)
-```
-
-The second pass returns pairs with 5+ transactions between the same two anomalous accounts — that pattern rarely appears in legitimate business and is a strong smurfing signal. Use both outputs as two parallel Phase 3 queues. Each `is_high_potential=true` entry is above the pattern's p95 of scores and warrants immediate review.
-
-**Reading the `is_high_potential` flag + `score_rank_pct`.** The scalar `score` is not cross-sphere-comparable (it scales with delta dimensionality), but every result carries `score_rank_pct` (percentile within the pattern) and `is_high_potential` (boolean, true when score ≥ p95). Use these for triage: `is_high_potential=true` is the actionable flag; `score_rank_pct >= 99` marks the extreme tail for immediate escalation.
-
-**Structural motif detection — `score_motif` and `find_high_potential_motifs`.** Where `edge_potential` scores one anomalous edge, `score_motif` scores the whole structural shape of a suspicious k-edge motif. The scoring rule is product-of-edge_potential across motif edges — a motif survives only if ALL its edges are rare and its endpoints are geometrically distant. One regular high-volume edge in a triad collapses the score to near-zero (correct: a triad with a payroll edge is not laundering).
-
-Eight closed motif types (`cycle_2`, `cycle_3`, `fan_out`, `fan_in`, `chain_k`, `structuring`, `split_recombine`, `bipartite_burst`) map to the 25 typologies in [`references/typologies.md`](references/typologies.md). On AML-shaped spheres start with `structuring` (highest empirical recall on IBM AML — closed-triad `cycle_3` is effectively absent there). `cycle_2` for flash-burst priors. `fan_out` for concentrator hubs.
-
-Full motif vocabulary specs (defaults, temporal-ordering rules, structural-atom mappings to typologies T1–T19) + AML Phase 2 workflow + jurisdictional structuring thresholds (US CTR / UK STR / EU CTR / crypto) + cold-call cost / warm-up order / scale threshold (>10M edges → seed-first pattern with `score_motif`) + `motif_potential` enrichment on `trace_root_cause` are documented in [`references/motif-detection.md`](references/motif-detection.md).
+Edge-level rare-pair detection (`find_high_potential_edges`, the dual singleton / recurring
+query, `is_high_potential`) and structural motifs (`score_motif`, `find_high_potential_motifs`)
+are in [references/phase2-signals.md](references/phase2-signals.md); the full motif vocabulary, defaults and
+typology mapping are in [references/motif-detection.md](references/motif-detection.md).
 
 Key signals:
-- `anomaly_dimensions` + `bregman_contribution` shows WHICH behavioral features drive the detection
+- `anomaly_dimensions` / `explain_anomaly.top_dimensions` (each dim's share of `delta_norm²` + its `kind`) show WHICH behavioral features drive the detection
   - `kind: poisson` dim anomalous = count/frequency structure deviation (structuring, burst)
   - `kind: bernoulli` dim anomalous = binary flag triggered (cross-border, FX flag, unusual channel)
   - `kind: gaussian` dim extreme = magnitude anomaly (large amount, high velocity)
-  - Focus on dims with highest `pct_of_total` in the Bregman breakdown, not just highest abs_delta
+  - `pct_of_total` is the dim's share of `delta_norm²`; `top_dimensions[0]` is the dim whose removal drops `delta_norm` most
 - Counterparties with `is_anomaly=true` = network confirmation
 - Temporal burst → silence pattern = classic placement/layering
 
@@ -302,15 +280,12 @@ From a confirmed suspect, expand the investigation network:
 2. Filter anomalous counterparties        → subset with is_anomaly=true
 3. For each anomalous counterparty:
      cross_pattern_profile(cp_key)        → are THEY multi-source flagged?
-4. discover_chains(suspect, pattern_id="<event_pattern>",
-     time_window_hours=72, max_hops=5)    → runtime chain discovery (preferred)
+4. extract_chains(event_pattern_id="<event_pattern>", seed_nodes=[suspect],
+     time_window_hours=72, max_hops=5)    → exact chain discovery from suspect
 5. Filter: chains with cyclic structure   → round-trip chains
 ```
 
-**`discover_chains` vs `extract_chains`:** `discover_chains` runs temporal BFS at query
-time on the edge table — no pre-built chain_lines required. Use it as the primary chain
-discovery tool. Fall back to `extract_chains(seed_nodes=[suspect])` when you need
-population-level chain statistics or when the sphere has pre-built chain patterns.
+**Seeded `extract_chains`:** passing `seed_nodes=[suspect]` causes every event to be used (no subsampling) — chains from that entity are exact. Use `min_hops` and `max_hops` to focus on the chain lengths relevant to the typology; use `bidirectional=True` for undirected search (e.g. round-trip detection).
 
 **Tracing connections between two suspects:**
 ```
@@ -338,7 +313,7 @@ Before closing an alert, check for exculpatory evidence:
 - `metric="cosine"` — compare anomaly profile shape ignoring magnitude. Entities with same pattern but different scale will be cosine-close. Use when "same type of activity" matters more than "same scale."
 - `dim_mask=[<dims from anomaly_dimensions>]` — focus similarity on the dimensions that drive the anomaly, ignoring irrelevant ones. Read the target entity's `anomaly_dimensions` first, then pass those labels as the mask.
 - `find_anomalies(metric="Linf")` — rank by max single-dimension spike. Catches entities with one extreme dimension that L2 norm dilutes. Use for single-behavior typologies.
-- `find_anomalies(metric="bregman")` — rank by Bregman divergence. Better than L2 on patterns mixing counts (poisson), amounts (gaussian), and flags (bernoulli). Check `dimension_kinds` in sphere_overview — if mixed kinds, try bregman first.
+- `bregman_divergence` on every `find_anomalies` result — distribution-aware score, more telling than L2 `delta_norm` on patterns mixing counts (poisson), amounts (gaussian), and flags (bernoulli). Check `dimension_kinds` in sphere_overview — if mixed kinds, compare the two scores.
 
 **Declarative compliance rules** — when the sphere is built with `conformance_rules:` declared on a pattern in `sphere.yaml`, `find_conformance_violations(pattern_id, severity_min="medium")` surfaces entities that broke human-authored expectations. Conformance violations are independent from `delta_norm` anomalies; an entity can be one, the other, or both. High-value workflow: `find_conformance_violations` → pick top violators → `investigate_entity(primary_key)` on each to drill into whether the rule break is also accompanied by geometric anomaly. AML adoption surface for SAR-narrative composition: cite the broken rule by `rule_id`, attach the entity's geometric explanation from `investigate_entity` as supporting evidence.
 
@@ -354,18 +329,6 @@ Quick reference:
 - Typology 4: Bidirectional Burst — ping-pong between two accounts
 - Typology 5: Multi-Stage Layering — 4+ hop cross-jurisdiction
 - Typologies 6-25 in references/typologies.md
-
-## Per-Pattern Investigation Guide
-
-| Pattern type | Key signal | Investigation tool |
-|---|---|---|
-| FAN-OUT | high out_degree + many dest_banks | find_counterparties → check all targets; `edge_stats` confirms degree distribution |
-| FAN-IN | high in_sources | find_counterparties → who feeds this account?; `edge_stats` for inbound concentration |
-| CYCLE | pair anomalies + chain is_cyclic | `discover_chains(direction="outgoing")` → filter cyclic; `find_geometric_path(scoring="anomaly")` traces the ring |
-| STACK | delta_rank_pct 90-95 (borderline) | `discover_chains(min_hops=3)` → check chain membership at runtime |
-| BIPARTITE | pair anomalies + community | aggregate(group_by_property="community_id") |
-| RANDOM | chain anomalies | `discover_chains(max_hops=6)` → longest reachable chains |
-| BRIDGE | entity straddles two communities | `cluster_bridges(pattern_id)` → bridges with anomalous status on both sides are high-risk connectors |
 
 ## Edge Table Investigation Recipes
 
@@ -385,63 +348,13 @@ Use these when the sphere has event patterns with edge tables (`edge_stats` retu
 | R10 Trade-Based ML | multi-currency cross-bank flows with amount mismatches | Trade-misinvoicing schemes |
 | R11 Mule Network | density-based clusters of low-volume coordinated accounts | Mule-network discovery without a seed |
 
-### Recipe input + capability matrix
-
-Quick-reference for "what does this recipe operate on?" and "how does it compose with the chain investigative loop?". Use to triage which recipes apply when only certain primitives are available, OR when picking which recipe a candidate entity belongs to.
-
-| Recipe | Input | Edge table use | One-shot orchestrator | SAR narrative composer |
-|---|---|---|---|---|
-| R1 Mirror Transaction | account pairs (edge scan) | primary — direct pair scan | none | none |
-| R2 Pass-Through | account | derived — `intermediary_score` baked at build time | none | none |
-| R3 Burst (Structuring) | account + motif | primary — runtime motif enumeration (`find_motif_structuring`, `find_motif_by_hops`) | none | none |
-| R4 Weighted Reciprocity | account pairs | primary — cycle-2 motif | none | none |
-| R5 Mule Profile | account | none — `find_anomalies` on anchor delta | none | none |
-| R6 Concentration Risk | account + graph features | derived — degree / betweenness / pagerank baked at build time | none | none |
-| R7 Benford | account amount distribution | none — distribution check | none | none |
-| R8 Witness Cohort | account + delta-space neighbours | secondary — BTREE edge index for already-connected exclusion | none | none |
-| **R9 Chain-Coherent Cascade** | **chain_pattern + anchor_pattern** | none — operates on stored chain pattern (chain extraction used edges at build time) | **`investigate_chain`** | **`generate_sar_rationale`** |
-| R10 TBM | account + motif | primary — `find_high_potential_motifs(motif_type='fan_out')` runtime enumeration | none | none |
-| R11 Mule Network | account clusters | secondary — clustering edge-free, scoring uses `contagion_score` + `cross_pattern_profile` | none | none |
-
-**Three patterns this matrix surfaces:**
-
-- **External-chain workflow applies only to R9** — R9 is the only recipe whose input is a chain. R1-R8 / R10-R11 take accounts / pairs / motifs / clusters — chain identifiers don't enter their signature. To unlock external-chain ingestion for them, would need composite primitives (e.g. "R3 burst scoped to chain members", "R8 witness cohort seeded from chain hops") — out of scope today, see [external-chains-as-anchor-line.md](../../hypertopos-py/docs/external-chains-as-anchor-line.md) for the R9 path.
-- **Edge-free recipes are R5 / R7 / R9** — R5 reads only anchor delta features, R7 reads only the amount distribution column, R9 reads chain anchor pattern + member anchor pattern. The other 8 either scan the edge table runtime (R1, R3, R4, R10) or read derived edge-features baked into the anchor at build time (R2, R6, R8, R11).
-- **Only R9 has end-to-end orchestration + SAR narrative today** — `investigate_chain` aggregates the four R9 primitives into one server-side call and `generate_sar_rationale` composes the resulting evidence into a paragraph-structured draft. Other recipes are manual call sequences; per-recipe orchestrators (`investigate_account`, `investigate_burst`, `investigate_network`, etc.) and per-recipe SAR templates would be the natural extensions.
+Which recipe runs on what input, which need the edge table, and which have a one-shot
+orchestrator: see the capability matrix and per-pattern guide in
+[references/recipe-index.md](references/recipe-index.md).
 
 ### Per-recipe detail
 
-Tool sequences, interpretation rules, false-positive guards, and uniqueness rationale for every recipe live in [`references/recipes.md`](references/recipes.md). Read on demand when actually executing a recipe — the summary table above and the matrix below are the index.
-
-The summary placeholder for each recipe (one-line "Pattern" sentence) is below; the full per-recipe block was extracted to keep this file scannable.
-
-### R1 — Mirror Transaction Detection
-
-**Pattern:** Entity A sends to B, and B sends back to A the same (or similar) amount within the same day. Classic circular flow indicator. Full detail in [`references/recipes.md#r1`](references/recipes.md).
-
-### R2 — Pass-Through / Rapid Layering
-
-**Pattern:** Entity receives funds and sends within 2 hours. The entity is a conduit, not a destination. Full detail in [`references/recipes.md#r2`](references/recipes.md).
-
-### R3 — Burst Detection (Structuring / Smurfing)
-
-**Pattern:** Many transactions to the same target within 24 hours, each below a reporting threshold. Full detail in [`references/recipes.md#r3`](references/recipes.md).
-
-### R4 — Weighted Reciprocity
-
-**Pattern:** Balanced bidirectional flow between two entities — min(out, in) / max(out, in) close to 1.0. Full detail in [`references/recipes.md#r4`](references/recipes.md).
-
-### R5 — Financial Profile (Mule Detection)
-
-**Pattern:** Entity's total flow reveals its role: source (high out, low in), sink (high in, low out), or mule (high both, near-zero net). Full detail in [`references/recipes.md#r5`](references/recipes.md).
-
-### R6 — Concentration Risk
-
-**Pattern:** A single counterparty dominates an entity's flow — potential control relationship. Full detail in [`references/recipes.md#r6`](references/recipes.md).
-
-### R7 — Benford's Law (Amount Distribution)
-
-**Pattern:** Natural financial data follows Benford's Law for first digits. Fabricated transactions often don't. Full detail in [`references/recipes.md#r7`](references/recipes.md).
+Tool sequences, interpretation rules, false-positive guards, and uniqueness rationale for every recipe live in [`references/recipes.md`](references/recipes.md) (anchors `#r1` … `#r11`). Read on demand when actually executing a recipe — the summary table above and [references/recipe-index.md](references/recipe-index.md) are the index. R1–R7 are described there in full; R8–R11 keep a one-line pattern below.
 
 ### R8 — Witness Cohort Discovery (Fraud Cohort Expansion)
 
@@ -449,36 +362,18 @@ The summary placeholder for each recipe (one-line "Pattern" sentence) is below; 
 
 ### R9 — Chain-Coherent Cascade (Composition-based Layering)
 
-**Pattern:** A stored chain (anchor pattern built from `chain_lines:` BFS extraction OR ingested from an external system per the [external-chains convention](../../hypertopos-py/docs/external-chains-as-anchor-line.md)) hops through ≥ N consecutive entity-anchor positions that are individually anomalous in the entity-anchor pattern AND share the same dominant delta dimension. The chain-level shape (hop count, time span, amount decay) may look unremarkable, but the *composition* of the path — every consecutive entity flagged for the same structural reason — is the signal.
+**Pattern:** A stored chain (anchor pattern built from `chain_lines:` BFS extraction OR ingested from an external system per the [external-chains convention](https://github.com/hypertopos/hypertopos-py/blob/main/docs/external-chains-as-anchor-line.md)) hops through ≥ N consecutive entity-anchor positions that are individually anomalous in the entity-anchor pattern AND share the same dominant delta dimension. The chain-level shape (hop count, time span, amount decay) may look unremarkable, but the *composition* of the path — every consecutive entity flagged for the same structural reason — is the signal.
 
-**External chain source.** When chains come from upstream (SAR typology engine, ERP workflow audit, EHR pathway, customer-journey platform), declare the chain table as an anchor line and populate the `chain_keys` column per the convention (comma-joined member primary_keys in chain order). The full R9 loop — `find_chains_with_coherent_anomaly`, `anomaly_propagation_in_chain`, `classify_chain_typology`, `extend_chain`, `chain_investigation_summary`, `investigate_chain` — works identically on those chains. No code change, just the schema convention. See [external-chains-as-anchor-line.md](../../hypertopos-py/docs/external-chains-as-anchor-line.md) for the worked example.
-
-**Tool sequence (full investigative loop — triage → flag → trace → label → extend, with one-shot orchestrator shortcut):**
-0. **Triage (optional, recommended on unfamiliar spheres)** — `chain_investigation_summary(chain_pattern_id="<chain_pattern>", anchor_pattern_id="<entity_anchor>")` returns one-shot population aggregates: `coherent_run_rate`, `cross_pattern_overlap.jaccard` with chain-shape anomalies, `top_dims_in_coherent_runs`, `recommended_min_hops`, `run_length_distribution`. Triage rules: `coherent_run_rate < 0.005` AND low jaccard → skip the deep R9 loop, fall back to `find_anomalies(<chain_pattern>)`; `coherent_run_rate > 0.05` → expect a productive loop, proceed; `recommended_min_hops > 3` → use the recommended threshold in step 1 to focus on the strongest cases. Cost is one coherent-anomaly sweep — exactly what step 1 would pay anyway, with the aggregates surfaced for free.
-
-**Per-chain shortcut (after step 1 surfaces a target chain_id):** `investigate_chain(chain_id, "<chain_pattern>", anchor_pattern_id="<entity_anchor>")` runs steps 2-5 (trace + typology + shape-anomaly lookup + extension forward + extension backward) server-side in a single call and returns the aggregated report with a `summary` block. Strength scoring uses **four chain-composition signals** (coherent run length >= 3, typology position not "no-run", forward extension has an anomalous candidate, backward extension has an anomalous candidate) — chain-shape anomaly is reported as evidence but NOT scored, so the R9 sweet spot (composition anomalous, chain shape normal) reaches `strong` without needing chain-shape agreement. Buckets: `score >= 3` → `strong` → `escalate to SAR`; `score == 2` → `moderate` → `continue investigation`; `score 0-1` → `weak` → `false-positive candidate`. Rationale = concatenated SAR-ready paragraph. Use when the investigator already knows which chain to drill into and wants the full R9 read in one round-trip; the per-step granular tools (steps 2-5 below) remain available when finer per-step control is needed.
-
-**SAR narrative draft (final step in the per-chain shortcut path):** `generate_sar_rationale(chain_id, "<chain_pattern>", anchor_pattern_id="<entity_anchor>", evidence=<investigate_chain output>)` composes a 3-5 paragraph SAR-ready narrative from the R9 evidence — chain identification + typology, per-hop trace, boundary extensions, chain-shape corroboration, aggregated strength + recommended action. No LLM call; pure template composition. Returns `sar_narrative` (paragraph-separated string), `evidence_anchors` (structured pointers per claim — investigator can audit every line against source data), `confidence` (`high` / `moderate` / `low` derived from strength + evidence completeness), and a `regulatory_template_hint` passthrough (`"FinCEN SAR"` default; tag with `"EU AMLR Annex II"` or internal template name for downstream filing systems). Pass the `investigate_chain` return verbatim as `evidence` to skip re-running the R9 loop. Honesty discipline: narrative uses "evidence indicates" / "the per-hop trace shows" / "corroborating evidence" — never "confirms" — and is positioned as a starting draft for the investigator, NOT a final verdict.
-1. **Flag** — `find_chains_with_coherent_anomaly(pattern_id="<chain_pattern>", anchor_pattern_id="<entity_anchor>", min_hops=3, max_results=100)` sweeps all chains in the chain pattern, returns ranked runs (chain_id, run_start_idx, run_length, top_dim, run_keys, max_delta_norm).
-2. **Trace** — for each top flagged chain: `anomaly_propagation_in_chain(chain_id, "<chain_pattern>", anchor_pattern_id="<entity_anchor>")` returns the full per-hop progression — see WHERE the anomaly intensity peaks and WHERE it breaks. Hops carry `is_anomaly`, `delta_norm`, `top_dim`, `delta_rank_pct`. Run end with low `delta_rank_pct` = clean exit; with elevated rank = soft boundary worth extending.
-3. **Label** — `classify_chain_typology(chain_id, ...)` wraps the trace and returns a five-axis operational tag: `shape` (rising / falling / peak-position), `position_in_chain` (leading / transit / terminal / full-chain), `extension_signals` (forward / backward booleans), plus `dominant_top_dim` across the whole chain. Lets investigator triage chains by typology without re-reading hop sequences.
-3b. **Witness coordination** — `chain_witness_intersection(chain_id, "<chain_pattern>", member_pattern="<entity_anchor>")` intersects the top witness dimensions of the chain's members. `coordinated=True` (mean pairwise Jaccard `>= min_jaccard`, default 0.5) means every member is anomalous for the same structural reason — a single geometric diagnosis for the chain instead of N independent member-level explanations. Use as the witness-side refinement of the typology label: same `shape` + `coordinated=True` reads stronger as a typology candidate than the same `shape` + `coordinated=False`.
-3c. **Drift trajectory** — `chain_drift_trajectory(chain_id, "<chain_pattern>", member_pattern="<entity_anchor>", n_windows=4)` returns the per-member regime over time-bucketed `delta_norm` plus a chain-level rollup (`normalizing` / `deteriorating` / `neutral` / `mixed`) and a numeric drift score. Use to spot chains whose members are *jointly* drifting toward anomaly before any single hop crosses the threshold — the rolling-onset surface complementary to the static trace in step 2.
-4. **Cross-check** — compare with `find_anomalies(<chain_pattern>)`: chains in BOTH sets are highest-confidence (chain shape AND chain composition agree); chains in coherent-anomaly-only are missed by chain-shape scoring; chains in baseline-only are flagged for shape (e.g. amount decay) but not composition. The two are orthogonal detectors.
-5. **Extend** — when `extension_signals.forward` or `.backward` is True (or the trace's breakpoint hop is in `delta_rank_pct >= 80` band): `extend_chain(chain_id, ..., direction="forward"|"backward")` returns ranked candidate entities that follow / precede the boundary in OTHER chains. Anomalous candidates with high `delta_norm` are prime targets for widening the investigation into the surrounding ring.
-6. **Deep-dive per candidate** — for each high-rank extension target: `find_chains_for_entity(candidate_key, <chain_pattern>)` to enumerate which chains contain it, then standard Phase 2 (Entity 360) on those chains' anchor entities.
-
-**Interpretation:** A run of length 4 with `top_dim="find_motif_structuring_max"` is textbook structuring — every account on the path is individually flagged for high motif-structuring activity. Mixed top_dim across the population (3-5 distinct drivers in the top 100 results) signals diverse layering vectors, not a single typology.
-
-**Agent-friendly natural-language entry points** (via `detect_pattern` smart-mode router): "find chains where consecutive accounts are individually anomalous" routes to step 1 Flag; `trace chain CHAIN-XXX hop by hop` → step 2; `classify chain CHAIN-XXX typology` → step 3; `extend chain CHAIN-XXX forward` → step 5. Step 6 deep-dive (`find_chains_for_entity`) requires direct call (entity keys vary per sphere, not extractable from query). Full per-step language table + keyword-fallback notes + complementary-not-replacement detail in [`references/recipes.md#r9`](references/recipes.md).
+Full tool sequence (triage → flag → trace → label → extend, plus the `investigate_chain` and
+`generate_sar_rationale` shortcuts) in [`references/recipes.md#r9`](references/recipes.md).
 
 ### R10 — Trade-Based Money Laundering (TBM)
 
-**Pattern:** Multi-currency cross-bank flows with amount mismatches typical for over/under-invoicing. Discriminator: `currency_diversity >= 2` AND `cross_bank_count >= 2` along a fan-out path. **Status:** Exploratory — empirical lift TBD. Full detail in [`references/recipes.md#r10`](references/recipes.md).
+**Pattern:** Multi-currency cross-bank flows with amount mismatches typical for over/under-invoicing. Discriminator: `currency_diversity >= 2` AND `cross_bank_count >= 2` along a fan-out path. **Status:** Exploratory — treat output as a candidate set, not a verdict. Full detail in [`references/recipes.md#r10`](references/recipes.md).
 
 ### R11 — Mule Network Discovery
 
-**Pattern:** A *group* of low-volume accounts forming a dense subgraph with coordinated reciprocal flows. Detected as a cluster (not from a confirmed seed — that's R8). **Status:** Exploratory — empirical lift TBD. Full detail in [`references/recipes.md#r11`](references/recipes.md).
+**Pattern:** A *group* of low-volume accounts forming a dense subgraph with coordinated reciprocal flows. Detected as a cluster (not from a confirmed seed — that's R8). **Status:** Exploratory — treat output as a candidate set, not a verdict. Full detail in [`references/recipes.md#r11`](references/recipes.md).
 
 ## Investigation Memory
 
@@ -546,9 +441,9 @@ lead_score = 0.35 × anomaly_strength
 - `find_similar_entities` returns shape twins, not new suspects — use `find_counterparties` for network expansion
 - High `delta_norm` can mean legitimate high-activity entity — cross-reference with business context
 - Pair pattern captures relationship anomalies invisible at account level — always check it
-- `extract_chains` without `seed_nodes` causes hub monopolization — prefer `discover_chains` which takes a single primary_key
+- `extract_chains` without `seed_nodes` causes hub monopolization — always pass `seed_nodes=[suspect]` for entity-focused chain investigation
 - `find_geometric_path` with `scoring="shortest"` finds direct connections but misses suspicious intermediaries — use `scoring="anomaly"` for fraud investigation
-- `discover_chains` `time_window_hours` defaults broadly — narrow it (e.g. 24-72h) to focus on rapid layering patterns
+- `extract_chains` `time_window_hours` defaults broadly — narrow it (e.g. 24-72h) to focus on rapid layering patterns
 - Typologies are agent-level rules on GDS primitives, not core engine logic
 - Single-source flags have high FP rate — multi-source confirmation (2+ patterns) is stronger
 
@@ -562,10 +457,9 @@ Beyond the per-suspect Phase 2 playbook above, four canonical scenarios get full
 
 - **Detect coordinated population-shift attack** — group-level `find_group_influence` with `reinforcing_factor > 1.5` test; catches collusion rings / mule networks / duplicate-record injections that single-account anomaly detection misses by design.
 - **AML hidden-influencer triage → SAR candidate workflow** — `find_calibration_influencers(classify="hidden")` + AML adversarial-typology atom matching + `delta_norm ≥ 0.7 × theta_norm` near-threshold filter + group-coordination cross-check.
-- **Cross-pattern lead-lag for AML rapid-escalation** — `find_lead_lag` between two anchor patterns over the SAME entity line (structural prerequisite); detects whether behaviour shifts precede stress signatures. Today's typical AML config has one anchor per entity space, so this needs a sphere rebuild before it's usable.
+- **Branch-isolated exclusion calibration** — when hidden influencers are identified, run `recalibrate(pattern_id, branch="excl_branch", exclude_keys=[...hidden_keys...])` to fit without them while still scoring every entity. Then call `compare_branches(pattern_id, branch="excl_branch")` to see how many entities flip anomaly status (`flipped_in` / `flipped_out`; `flipped_in_top` / `flipped_out_top` name them) and whether the Jaccard overlap justifies the change. If the result is the intended calibration, `manage_branch(action="promote", name="excl_branch")` replays the recipes on main and removes the branch. If not, `manage_branch(action="delete", name="excl_branch")` discards it without touching main.
+- **Cross-pattern lead-lag for AML rapid-escalation** — `find_lead_lag` between two anchor patterns over the SAME entity line (structural prerequisite); detects whether behaviour shifts precede stress signatures. A typical AML config has one anchor per entity space, so this needs a sphere rebuild before it's usable.
 - **Edge-derived dimensions for AML detection** — five build-time per-edge dim functions (`pair_edge_count`, `position_in_chain`, `time_since_pair_last_edge`, `pair_amount_zscore`, `find_motif_structuring`) declared via `edge_dimensions:` on event patterns; lift per-edge geometry signal for layering / structuring detection.
-
-<!-- Detail moved to references/advanced-workflows.md to keep SKILL.md scannable. Each scenario keeps full per-step Python templates, validation rules, and "when not to use" guidance in the reference. -->
 
 ## Aggregated edge dims (account-level + chain-level recall)
 

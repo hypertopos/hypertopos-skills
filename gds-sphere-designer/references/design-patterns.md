@@ -77,7 +77,7 @@ account_loan_pattern:        # loan exposure
 
 **How it works:**
 - Each pattern independently flags anomalies from its own perspective
-- `composite_risk(entity_key)` combines p-values via the Wilson harmonic-mean
+- `composite_risk(primary_key)` combines p-values via the Wilson harmonic-mean
   p-value (HMP), robust under positive dependence between cross-pattern p-values
 - `passive_scan(line_id, threshold=2)` finds entities flagged in 2+ patterns
 - A default may be normal in behavior but anomalous in stress + loan →
@@ -140,13 +140,11 @@ signature** — different top dimensions, different entity populations.
 Some domains require a different primary strategy: **multi-source pipeline** —
 independent geometry types (account + pair + chain + heuristics) each adding unique TPs.
 
-**Observed on IBM AML HI-Small (5M tx, 515K accounts, 7 laundering types):**
-
-`n_currencies_out` drove detection across all 7 laundering pattern types (2.8-9.7x
-separation ratio). Per-typology detectors on isolated lines yielded 45.4% recall vs
-75.2% for the full multi-source pipeline — worse despite fewer dims. The right isolation
-was at the **geometry level** (account / pair / chain / heuristics), not within the
-account pattern itself.
+**Typical on labelled AML transaction data:** one behavioural dimension (e.g.
+`n_currencies_out`) separates most laundering typologies at once, so per-typology
+detectors on isolated lines recall less than the full multi-source pipeline — worse
+despite fewer dims. The right isolation is at the **geometry level** (account / pair /
+chain / heuristics), not within the account pattern itself.
 
 | Geometry | What it captures | Unique TP |
 |----------|-----------------|-----------|

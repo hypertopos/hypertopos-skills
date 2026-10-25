@@ -31,7 +31,7 @@ chain_lines:
 
 **Edge table** — auto-emitted for event patterns with 2+ FK relations to same anchor line. Optional explicit config:
 ```yaml
-# Edge table enables find_geometric_path, discover_chains, edge_stats
+# Edge table enables find_geometric_path, extract_chains, edge_stats
 # MCP tools at navigation time.
 # Build cost: near zero (data already in memory during geometry build).
 # Skip with --no-edges CLI flag.

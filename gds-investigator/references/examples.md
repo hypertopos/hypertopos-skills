@@ -5,7 +5,7 @@ returns and how to interpret it.
 
 ## Ground Truth Workflow — Example
 
-**Call:** `check_anomaly_batch(keys=["ACCT-42", "ACCT-107", "ACCT-215", "ACCT-330", "ACCT-501"], pattern_id="account_pattern")`
+**Call:** `check_anomaly_batch(primary_keys=["ACCT-42", "ACCT-107", "ACCT-215", "ACCT-330", "ACCT-501"], pattern_id="account_pattern")`
 
 **Output (key fields):**
 ```json
@@ -96,7 +96,7 @@ unusual invoice pattern. Proceed with entity 360 on top 3."
 
 ## Root Cause Chain — Example
 
-**Step 1 — Call:** `explain_anomaly(key="SUPP-1234", pattern_id="supplier_pattern")`
+**Step 1 — Call:** `explain_anomaly(primary_key="SUPP-1234", pattern_id="supplier_pattern")`
 
 **Output (key fields):**
 ```json
@@ -117,7 +117,7 @@ unusual invoice pattern. Proceed with entity 360 on top 3."
 }
 ```
 
-**Step 2 — Call:** `dive_solid(key="SUPP-1234", pattern_id="supplier_pattern")`
+**Step 2 — Call:** `dive_solid(primary_key="SUPP-1234", pattern_id="supplier_pattern")`
 
 **Output (key fields):**
 ```json
@@ -151,7 +151,7 @@ Investigate Q3 2024 events."
 
 ## Entity 360 — Example
 
-**Call:** `cross_pattern_profile(key="SUPP-1234", line_id="suppliers")`
+**Call:** `cross_pattern_profile(primary_key="SUPP-1234", line_id="suppliers")`
 
 **Output (key fields):**
 ```json
@@ -204,7 +204,15 @@ HIGH confidence anomaly."
 
 ### Hypothesis: SUPP-1234 anomaly is driven by a single large contract awarded in Q3 2024
 
-**Test:** `get_event_polygons(key="SUPP-1234", event_pattern="invoice_pattern", time_from="2024-07-01", time_to="2024-09-30")`
+**Test:** For time-bounded counts, use `aggregate`; for individual event details, use `get_event_polygons`:
+
+```
+aggregate(event_pattern_id="invoice_pattern", group_by_line="suppliers",
+          metric="sum:amount", time_from="2024-07-01", time_to="2024-09-30",
+          filter_by_keys=["SUPP-1234"])
+
+get_event_polygons(primary_key="SUPP-1234", pattern_id="invoice_pattern", top_n=50)
+```
 
 **Result:**
 ```json
@@ -215,7 +223,7 @@ HIGH confidence anomaly."
     {"counterparty": "CUST-8901", "amount": 67000,  "date": "2024-09-20"}
   ],
   "total_events": 42,
-  "filtered_events": 3
+  "returned": 3
 }
 ```
 
@@ -228,7 +236,7 @@ rather than a one-off.
 
 ### Hypothesis: SUPP-1234 is a false positive — other large suppliers look the same
 
-**Test:** `find_similar_entities(key="SUPP-1234", pattern_id="supplier_pattern", filter_expr="is_anomaly = false", top_n=20)`
+**Test:** `find_similar_entities(primary_key="SUPP-1234", pattern_id="supplier_pattern", filter_expr="is_anomaly = false", top_n=20)`
 
 **Result:**
 ```json
@@ -285,7 +293,7 @@ not account size."
 
 ## False Positive Assessment — Example
 
-**Call:** `find_similar_entities(key="CUST-5678", pattern_id="customer_pattern", filter_expr="is_anomaly = false", top_n=20)`
+**Call:** `find_similar_entities(primary_key="CUST-5678", pattern_id="customer_pattern", filter_expr="is_anomaly = false", top_n=20)`
 
 **Output (key fields):**
 ```json

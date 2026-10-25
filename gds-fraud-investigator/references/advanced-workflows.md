@@ -74,7 +74,7 @@ if len(flagged) >= 2:
         pattern_id="<account_pattern>",
         groups=[[e["entity_key"] for e in flagged]],
     )
-    if group_result[0]["reinforcing_factor"] > 1.5:
+    if group_result["results"][0]["reinforcing_factor"] > 1.5:
         # Coordinated — escalate as ring, not individual SARs
         ...
 ```
@@ -107,9 +107,9 @@ result = mcp__hypertopos__find_lead_lag(
 
 **Cross-validate with hidden-influencer triage:** entities flagged hidden-influencer with `delta_norm ≥ 0.7 * theta_norm` AND appearing in the leading dim of `top_dim_pairs` are SAR-priority candidates — they sit near θ on a behaviorally-leading dimension whose centroid shifts before the stress-pattern centroid does.
 
-**For production-grade lead-lag:** the blocker is structural, not cadence. Today's typical AML config has one anchor pattern per entity space — `cohort="fixed"` raises empty-cohort because there is no shared entity space. Rebuild the sphere with two anchor patterns over the SAME entity line and lead-lag becomes well-defined. Window-only rework (`window=12h` for finer N) does not help: the population centroid is dominated by `√N` averaging over hundreds of thousands of entities, so its drift series is near-constant in absolute units — the limit is the architecture, not the temporal resolution.
+**For production-grade lead-lag:** the blocker is structural, not cadence. A typical AML config has one anchor pattern per entity space — `cohort="fixed"` raises empty-cohort because there is no shared entity space. Rebuild the sphere with two anchor patterns over the SAME entity line and lead-lag becomes well-defined. Window-only rework (`window=12h` for finer N) does not help: the population centroid is dominated by `√N` averaging over hundreds of thousands of entities, so its drift series is near-constant in absolute units — the limit is the architecture, not the temporal resolution.
 
-If `find_lead_lag` raises with `cohort upper bound would build at least X.XX GB of shape tensors`, the patterns are over disjoint entity_lines and cross-pattern lead-lag is undefined. Fall back to `cohort='fixed'` (will raise empty-cohort with the same diagnostic) or pass `entity_key=<id>` for per-entity drill-down.
+If `find_lead_lag` raises with `cohort upper bound would build at least X.XX GB of shape tensors`, the patterns are over disjoint entity_lines and cross-pattern lead-lag is undefined. Fall back to `cohort='fixed'` (will raise empty-cohort with the same diagnostic) or pass `primary_key=<id>` for per-entity drill-down.
 
 ## Edge-derived dimensions for AML detection
 
@@ -153,8 +153,8 @@ patterns:
 
 Validation rejects: `min_position < 3`, `cv_threshold` outside (0, 1], `min_count < 2`, non-positive `amt1_min` / `amt2_max` / `time_window_hours`, negative `burst_seconds`, duplicate dim entries, edge_dimensions on anchor patterns. Each entry can be either a bare string (use defaults) or a single-key dict with overrides.
 
-Reading the dims at investigation time: `find_anomalies` (or any other primitive) returns each event polygon's `delta` vector with the new dims appended. Their order matches the order in `pattern.dimension_kinds` — read both side-by-side. The new dims contribute to `delta_norm`, anomaly classification, similarity search, clustering, and per-dim Bregman ranking exactly the same way relations and `event_dimensions` do.
+Reading the dims at investigation time: the new dims are appended to each event polygon's `delta`, in the order of `pattern.dimension_kinds`. The compact response format leaves positional `delta` vectors out (listed in `omitted`) — read one polygon's dims by name with `get_polygon` (`delta_by_dim`) or `explain_anomaly`, or repeat a list call with `summary=false` for the vectors plus `dim_labels`. The new dims contribute to `delta_norm`, anomaly classification, similarity search, clustering, and per-dim Bregman ranking exactly the same way relations and `event_dimensions` do.
 
-A persisted per-edge sidecar Lance dataset lives at `_gds_meta/edge_features/{pid}/data.lance` with one row per `event_key` and one column per declared dim. No current primitive reads it on the navigator hot path; it is forward-compat for a future HopPredicate query API that would let agents express motif queries with predicates on these dim values.
+A persisted per-edge sidecar Lance dataset lives at `_gds_meta/edge_features/{pid}/data.lance` with one row per `event_key` and one column per declared dim. `find_motif_by_hops` reads it when a hop predicate filters on these dim values (see `declarative-motifs.md`).
 
 **When NOT to enable:** anchor patterns, patterns with no `edge_table` (the dims have nothing to compute over), and patterns where the entity_line is not 1:1 with edges (only event patterns satisfy `primary_key == event_key`).
