@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.9.3] — 2026-10-26
+
+### Changed
+
+- `gds-spark` shows how to explain a scored alert with `explain(today, events=new_events)`.
+- `gds-spark` shows scoring in a scheduled job against a calibration saved on persistent storage (`score(df, like=sphere_of(path))`).
+
 ## [0.9.2] — 2026-10-25
 
 ### Added

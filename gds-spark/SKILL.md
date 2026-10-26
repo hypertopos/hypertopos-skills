@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Requires pip install "hypertopos[spark]" (PySpark 3.5 or 4, Python 3.12; on Databricks, Runtime 16+ or serverless environment 3+). Works on classic clusters and Spark Connect. Hand-off to an agent needs hypertopos-mcp.
 metadata:
   author: Karol Kędzia
-  version: 0.9.2
+  version: 0.9.3
 ---
 
 # GDS on Spark
@@ -58,7 +58,6 @@ result = find_anomalies(events, entity="from_account", counterparty="to_account"
 result.orderBy("delta_norm", ascending=False).show(20, truncate=False)
 ```
 
-- On a laptop, lower `spark.sql.shuffle.partitions` to 2–4 before running; the default of 200 is sized for a cluster.
 - A second call on the same table with the same settings reuses the cached calibration. Pass `cache=False` after rewriting a plain file in place.
 - No data to hand? `hypertopos.datasets.synthetic_aml(n_accounts=..., seed=...)` gives labelled payments to try the flow.
 
@@ -98,7 +97,7 @@ today = score(spark.table("main.payments.today"), like=result)
 today.where("is_anomaly").write.mode("append").saveAsTable("main.payments.daily_alerts")
 ```
 
-Use this for monitoring: today against last month's population, so scores stay comparable from day to day. A recalibration on every batch would move the baseline with the data. Recalibrate deliberately, when the population has really changed, by running `find_anomalies` on the new reference window.
+Use this for monitoring: today against last month's population, so scores stay comparable from day to day. A scheduled job runs in a new process: calibrate with `sphere_root` on persistent storage (a Unity Catalog Volume on Databricks), keep `str(sphere_of(result).path)`, and score later runs with `score(df, like=sphere_of(path))`. On serverless, pass `sphere_root=` (a custom Spark conf cannot be set there). To explain a scored alert, pass the events it was scored on: `explain(today, events=new_events)`. A recalibration on every batch would move the baseline with the data. Recalibrate deliberately, when the population has really changed, by running `find_anomalies` on the new reference window.
 
 ## 7. Hand the result to an agent
 
