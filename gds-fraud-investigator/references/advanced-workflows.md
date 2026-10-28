@@ -27,6 +27,8 @@ Companion: `find_calibration_influencers(classify="hidden", verbose=True)` — f
 
 ## AML hidden-influencer triage → SAR candidate workflow
 
+Applies to patterns scored by `delta_norm` (no `score_dims`). On calibrated patterns `find_calibration_influencers` raises — use `explain_anomaly` to understand individual flags and `compare_branches` to evaluate the effect of excluding candidates.
+
 When investigating a financial sphere (account-level pattern with adversarial-typology dimensions), hidden influencers right below the anomaly threshold are the highest-value SAR (Suspicious Activity Report) candidates: they look "normal" to anomaly detection BUT calibration of typology-relevant dims rests on them. Workflow:
 
 ```python

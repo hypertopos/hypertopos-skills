@@ -2,11 +2,11 @@
 
 FDR tuning for the suspect list and what to do when tools return nothing useful.
 
-## FDR control and diverse selection
+## Alarm budget and diverse selection
 
-When tracing root causes, use `fdr_alpha=0.05` on `find_anomalies` to ensure the initial suspect list has controlled false discovery rate — chasing false positives through the full root-cause chain wastes the entire investigation budget. Use `select="diverse"` when requesting K>10 results to surface anomalies driven by different dimensions rather than clustering on one dominant failure mode; this ensures the investigation covers distinct root-cause categories. Both parameters also apply to `attract_boundary`; `find_hubs` and `find_drifting_entities` accept `select` only (rank-only scores, no FDR).
+When tracing root causes, remember what the suspect list promises: On a calibrated pattern (non-empty `score_dims`), `is_anomaly` means `conformal_p ≤ 1 − anomaly_percentile/100` — the alarm budget: at the 95th percentile about 5 % of a clean population is flagged. Chasing false positives through the full root-cause chain wastes the entire investigation budget, so start from the smallest `conformal_p` (strongest evidence) and confirm with a second detector before going deep. Use `select="diverse"` when requesting K>10 results to surface anomalies driven by different dimensions rather than clustering on one dominant failure mode; this ensures the investigation covers distinct root-cause categories. `select` also applies to `attract_boundary`, `find_hubs` and `find_drifting_entities`.
 
-**Adaptive FDR (Storey).** When the investigation needs to expand the candidate list without relaxing α, try `fdr_method="storey"` — on the χ² p-values FDR always uses, the Storey LSL estimator detects when the population has a real null mass and shrinks q-values accordingly, typically recovering 10–15% more suspects at the same false-discovery guarantee. If the pattern is heavily compressed (every entity looks sub-null) or saturated (every entity already exceeds the null), Storey collapses to BH — keep the default in those regimes.
+**Stale calibration.** The budget holds against the stored calibration reference. When `check_alerts` reports `calibration_age` (reference older than 60 days), `recalibrate(pattern_id)` before relying on `conformal_p` for a decision.
 
 **Prioritise deteriorating drift.** When `drift_direction` is `"deteriorating"`, the entity is structurally moving away from the null centre — investigation priority is higher than for equally-displaced entities with `"normalizing"` direction, which are already self-correcting. Use this to rank multiple drifting entities by risk rather than raw displacement.
 

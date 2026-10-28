@@ -1,12 +1,12 @@
 # Real-World Sphere Config Examples
 
-Examples drawn from two production benchmark spheres:
-- **Berka** — Czech banking dataset (4,500 accounts, 1M transactions)
-- **TPC-H** — Supply chain benchmark (6M lineitems, 10K suppliers)
+Examples drawn from two worked spheres:
+- **Banking example** — a banking sphere with accounts and transactions
+- **TPC-H** — a supply chain sphere with lineitems and suppliers
 
 ---
 
-## NB-Split: Isolated Entity Lines for Orthogonal Patterns — Example from Berka
+## NB-Split: Isolated Entity Lines for Orthogonal Patterns — Banking Example
 
 **sphere.yaml excerpt:**
 ```yaml
@@ -80,7 +80,7 @@ patterns:
 
 ---
 
-## Temporal Config on Anchor Pattern — Example from Berka
+## Temporal Config on Anchor Pattern — Banking Example
 
 **sphere.yaml excerpt:**
 ```yaml
@@ -104,7 +104,7 @@ temporal:
 
 ---
 
-## Alias Definition — Example from Berka
+## Alias Definition — Banking Example
 
 **sphere.yaml excerpt:**
 ```yaml
@@ -131,7 +131,7 @@ aliases:
 
 ---
 
-## Derived Dimensions with anchor_fk — Example from Berka
+## Derived Dimensions with anchor_fk — Banking Example
 
 **sphere.yaml excerpt:**
 ```yaml
@@ -154,7 +154,7 @@ aliases:
 
 ---
 
-## Source Script Reference — Example from Berka
+## Source Script Reference — Banking Example
 
 **sphere.yaml excerpt:**
 ```yaml

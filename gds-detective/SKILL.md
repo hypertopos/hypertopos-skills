@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Requires hypertopos MCP server. Designed for Claude Code and compatible agents.
 metadata:
   author: Karol Kędzia
-  version: 0.9.0
+  version: 0.10.0
   mcp-server: hypertopos
 ---
 
@@ -24,14 +24,11 @@ For concrete output examples of each recipe, see [references/examples.md](refere
 
 ---
 
-## FDR control and diverse selection
+## Alarm budget, cell gate and diverse selection
 
-Detection recipes that start with `find_anomalies` benefit from two parameters: `fdr_alpha` applies Benjamini-Hochberg FDR control so that the candidate list has a bounded false discovery rate before expensive downstream recipe steps run, and `select="diverse"` uses submodular facility location to return candidates spanning different anomaly signatures rather than redundant near-duplicates. Set `fdr_alpha=0.05` when the recipe feeds into manual verification or cross-pattern confirmation; use `select="diverse"` when the goal is to discover the range of anomaly types present, not just the most extreme instances. Both parameters also work on `attract_boundary`; `find_hubs` and `find_drifting_entities` accept `select` only — hub score and drift displacement are rank-only scores with no model p-value, so they offer no FDR.
+On a calibrated pattern (non-empty `score_dims`), the candidate list of `find_anomalies` already carries a calibrated statement: `is_anomaly` means `conformal_p ≤ 1 − anomaly_percentile/100`, so at the 95th percentile about 5 % of a clean population is flagged. Treat that share as the expected false-alarm load before expensive downstream recipe steps run, and prefer the entities with the smallest `conformal_p` for manual verification. There is no entity-level FDR (the conformal p-values of the fitted population are its own ranks). `select="diverse"` uses submodular facility location to return candidates spanning different anomaly signatures rather than redundant near-duplicates — use it when the goal is to discover the range of anomaly types present, not just the most extreme instances. It also works on `attract_boundary`, `find_hubs` and `find_drifting_entities`.
 
-**Storey adaptive FDR** — `fdr_method="storey"` (on the χ² p-values FDR always uses) expands the candidate list by 10–15% on patterns whose delta distribution has a real null mass (moderate super-anomaly regime). On compressed or saturated distributions the effect vanishes — detective recipes should default to `fdr_method="bh"` and only opt into Storey when the pattern's `median(delta_norm) ≈ sqrt(df)` with a clean tail.
-
-**FDR axis, per-dim ranking and multi-resolution FDR** — `fdr_axis`, `rank_by="min_q_per_dim"`
-and the spatial / temporal `fdr_resolution` gates are in [references/fdr-controls.md](references/fdr-controls.md).
+**Cell gate** — when the pattern declares `fdr_hierarchy:` / `fdr_temporal_hierarchy:`, `fdr_alpha` with `fdr_resolution` / `fdr_temporal_resolution` keeps the cells enriched in anomalies (`fdr_method="storey"` by default over cells). The alarm budget and the cell gate are in [references/fdr-controls.md](references/fdr-controls.md).
 Read it when a recipe needs per-dimension significance or a hot-spot cell gate.
 
 ---
@@ -179,7 +176,7 @@ For each normal neighbor found:
 **From population sample** (broader, use if the first approach finds nothing):
 
 ```
-Sample 50 normal entities (delta_rank_pct 30-70, is_anomaly=false)
+Sample 50 normal entities (score_rank_pct 30-70, is_anomaly=false)
 For each: find_similar_entities(key, pattern, top_n=10)
 check_anomaly_batch(neighbor_keys, pattern)
 Normal entity with >50% anomalous neighbors = contamination target
@@ -308,9 +305,11 @@ find_anomalies per pattern -> top suspects
 passive_scan(line_id, threshold=1) -> all single+ source
 passive_scan(line_id, threshold=2) -> confirmed multi-source only
 
-Optional: add confidence filter for stable-anomaly confirmation
-  find_anomalies(pattern_id, top_n=50, min_confidence=0.8)
-  -> entities where bootstrap confidence >= 0.8 (populations <= 50K only)
+Optional: add a strength filter for confirmation
+  find_anomalies(pattern_id, top_n=50)
+  -> calibrated pattern: keep entities with conformal_p well below the
+     alarm budget (e.g. <= alpha / 5); other patterns (populations <= 50K):
+     find_anomalies(pattern_id, top_n=50, min_confidence=0.8)
   -> use as high-priority confirmation list: if an entity appears here
      AND in passive_scan(threshold=2), it is the strongest confirmation tier
 ```
@@ -319,8 +318,8 @@ Cross-line bridging: `passive_scan("<anchor_line>")` auto-discovers sibling
 lines (same `source_id`); a sphere without `source_id` needs explicit sources.
 
 **Confidence-threshold guidance for confirmation tiers:**
-- `min_confidence >= 0.8` + `threshold=2` → highest-confidence tier, escalate immediately
-- `min_confidence 0.5-0.8` + `threshold=2` → confirmed multi-source but borderline stability
+- strong evidence (`conformal_p` far below the budget, or `min_confidence >= 0.8` on uncalibrated patterns) + `threshold=2` → highest-confidence tier, escalate immediately
+- `conformal_p` near the budget (or `min_confidence 0.5-0.8`) + `threshold=2` → confirmed multi-source but borderline
 - `threshold=2` only (no confidence filter) → standard multi-source confirmation
 - `threshold=1` only → broad suspect list, expect higher FP rate
 

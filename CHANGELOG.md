@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.10.0] — 2026-10-28
+
+### Changed
+
+- Detection, scanning, investigation and fraud skills teach the calibrated alarm budget (`is_anomaly` = `conformal_p` at most `1 - anomaly_percentile/100`) and the cell gate (`fdr_alpha` with `fdr_resolution` / `fdr_temporal_resolution`) in place of entity-level and per-dimension FDR; `gds-detective`'s error-control reference is rewritten around the two.
+- Skills read `explain_anomaly`'s evidence in bits per axis and per dimension on calibrated patterns, use `score_rank_pct` in place of `delta_rank_pct`, and keep θ-based options (`radius`, `metric="Linf"`, `dimension_weights`, `min_confidence`, witness / repair sets) for patterns scored by `delta_norm`.
+- `gds-sphere-designer` documents the `score_axes` pattern key in place of `use_mahalanobis`, and a troubleshooting row for small calibrated populations that cannot reach the alarm budget; `gds-monitor` covers the `calibration_age` alert.
+- `gds-spark` reads the Spark result by `anomaly_score` and `score_rank_pct`, with global flags under `group_by`.
+- `gds-spark` reads `top_reasons` / `explain` shares as shares of the anomaly score and notes that Spark scores without the event-motion axis; `gds-monitor` notes that emerging anomalies are not available on calibrated patterns; `gds-fraud-investigator` lead triage reads `conformal_p` where `anomaly_confidence` is absent.
+
 ## [0.9.3] — 2026-10-26
 
 ### Changed

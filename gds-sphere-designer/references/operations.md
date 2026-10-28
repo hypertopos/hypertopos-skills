@@ -111,12 +111,12 @@ for batch in incoming_batches:
     builder.incremental_update(
         pattern_id="entity_pattern",
         changed_entities=batch,
-        recompute_ranks=False,        # defer the global delta_rank_pct recompute
+        recompute_ranks=False,        # defer the global score_rank_pct recompute
     )
 builder.finalize_incremental("entity_pattern")  # recompute ranks + reindex once
 ```
 
-`finalize_incremental(pattern_id)` recomputes the global `delta_rank_pct`
+`finalize_incremental(pattern_id)` recomputes the global `score_rank_pct`
 percentile across the whole population (making every row standalone-correct
 again) and rebuilds the IVF index so all appended rows are indexed. It is
 idempotent and safe to call after `recompute_ranks=True` updates too. After a

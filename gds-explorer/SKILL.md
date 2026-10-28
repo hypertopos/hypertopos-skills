@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Requires hypertopos MCP server. Designed for Claude Code and compatible agents.
 metadata:
   author: Karol Kędzia
-  version: 0.9.0
+  version: 0.10.0
   mcp-server: hypertopos
 ---
 
@@ -52,29 +52,24 @@ After these 3 calls, check for signals that guide next steps:
 - **`dimension_kinds`** in sphere_overview — shows distribution-kind tags per dimension
   (e.g. "bernoulli x4, poisson x2, gaussian x8"). Use this as a quick orientation to
   understand which patterns have count-heavy vs magnitude-heavy vs binary geometries.
-  Patterns with many bernoulli dims perform best with `metric="Linf"` in find_anomalies.
+  Patterns with many bernoulli dims (and no calibrated score) perform best with `metric="Linf"` in find_anomalies.
   Patterns with mixed kinds (poisson + gaussian + bernoulli): compare `bregman_divergence` with `delta_norm` in `find_anomalies` results.
 - **`confidence_distribution`** in sphere_overview — when present, shows the spread of
   bootstrap anomaly confidence across the flagged population. A distribution skewed toward
   low confidence suggests the anomaly rate is inflated by unstable detections. In that case,
   filter downstream calls: `find_anomalies(pattern_id, min_confidence=0.7)` to focus on
-  high-confidence detections before investing in full investigation.
+  high-confidence detections before investing in full investigation (patterns without the
+  calibrated score; on calibrated ones keep the smallest `conformal_p` instead).
 - **`profiling_alerts`** — run each alert's suggested call
   (`find_anomalies(rank_by_property=<dim>)`) on every pattern including composites.
-- **`dim_quality_warnings`** — six silent-failure auditors fire per pattern:
+- **`dim_quality_warnings`** — four silent-failure auditors fire per pattern:
   `dead_dim` (zero-variance dim; z-score undefined), `sparse_dim` (mostly-zero
   with rare nonzero tail; gaussian assumption wrong), `dominant_dim_mass`
   (pattern-level: one dim ≥ 70 % of tail variance — sphere is a one-dim detector
-  on this pattern, multi-dim composition adds little), `negative_space`
+  on this pattern, multi-dim composition adds little), and `negative_space`
   (gaussian-declared dim sitting at point-mass-at-zero — z-score treats zero
-  as typical when it is the absence value), `non_normal_dim` (gaussian-declared
-  dim whose empirical distribution is heavy-tailed — z-score percentiles are
-  unstable; re-declare kind or apply a variance-stabilizing transform), and
-  `heteroscedasticity` (pattern-level: Brown-Forsythe Levene `p < 0.01` on
-  `delta_norm` partitioned by the pattern's `group_by_property` — the global θ
-  assumption is statistically violated; `dim_label` carries the grouping variable
-  name, not a δ-dim). If `dominant_dim_mass`, `negative_space`, or
-  `heteroscedasticity` fires, raise a calibration ticket rather than investigating
+  as typical when it is the absence value). If `dominant_dim_mass` or
+  `negative_space` fires, raise a calibration ticket rather than investigating
   the flagged entities — they are likely noise. Full triage rules in `gds-monitor`.
 - **`has_temporal: true`** — for each temporal pattern, consider running
   `find_drifting_entities(pattern_id, top_n=3)` to detect behavioral changes.
@@ -166,9 +161,9 @@ outlier clusters into population mu/sigma — raw profiles reveal them.
 
 ## Selection modes for anomaly results
 
-`find_anomalies`, `attract_boundary`, `find_hubs`, and `find_drifting_entities` support two selection modes: the default `select="top_norm"` returns the most extreme entities by delta norm, while `select="diverse"` applies submodular facility location to return a geometrically spread set covering different anomaly types. During exploration, `top_norm` answers "show me the most extreme" and `diverse` answers "show me all the kinds of anomaly present." On `find_anomalies` and `attract_boundary`, an optional `fdr_alpha` parameter applies Benjamini-Hochberg FDR control on χ² model p-values to filter statistically insignificant results (hub and drift rankings have no model p-value and offer no FDR) — useful when handing results to specialist skills, but exploratory orientation can leave it unset to see the full landscape.
+`find_anomalies`, `attract_boundary`, `find_hubs`, and `find_drifting_entities` support two selection modes: the default `select="top_norm"` returns the most extreme entities by delta norm, while `select="diverse"` applies submodular facility location to return a geometrically spread set covering different anomaly types. During exploration, `top_norm` answers "show me the most extreme" and `diverse` answers "show me all the kinds of anomaly present." On calibrated patterns (non-empty `score_dims`) `is_anomaly` is the alarm budget — `conformal_p ≤ 1 − anomaly_percentile/100`, about 5 % of a clean population at the 95th percentile — so a flagged share (`find_anomalies.total_found` / population) well above that budget is real excess. When the pattern declares a spatial / temporal hierarchy, `fdr_alpha` with `fdr_resolution` shows which regions concentrate the anomalies — useful when handing results to specialist skills.
 
-`find_anomalies` also accepts `min_confidence` (0–1) to filter by bootstrap anomaly confidence. In exploration, this is useful when the population has many borderline detections: `min_confidence=0.7` returns only entities where the anomaly is stable across bootstrap resamples. Omit for initial orientation to see the full landscape, then narrow when handing suspects to investigation skills. Not applicable for populations > 50K, `group_by_property`, or `use_mahalanobis` patterns (confidence is absent).
+On patterns without the calibrated score, `find_anomalies` also accepts `min_confidence` (0–1) to filter by bootstrap anomaly confidence. In exploration, this is useful when the population has many borderline detections: `min_confidence=0.7` returns only entities where the anomaly is stable across bootstrap resamples. Omit for initial orientation to see the full landscape, then narrow when handing suspects to investigation skills. Not applicable for populations > 50K, `group_by_property` or calibrated patterns (confidence is absent).
 
 ---
 

@@ -30,7 +30,7 @@ passive_scan("suppliers", threshold=1)
 
 cross_pattern_profile("SUPP-0042", "suppliers")
 → pricing: is_anomaly=true, delta_norm=2.3
-→ activity: is_anomaly=false, delta_rank_pct=47
+→ activity: is_anomaly=false, score_rank_pct=47
 
 explain_anomaly("SUPP-0042", "suppliers_pricing")
 → dominant: avg_item_price (+2.1σ)
@@ -70,9 +70,9 @@ find_similar_entities("CUST-1187", "customers_pattern", top_n=10)
 → neighbors: [CUST-0023, CUST-0091, CUST-1443, ...]
 
 check_anomaly_batch(["CUST-0023","CUST-0091","CUST-1443",...], "customers_pattern")
-→ CUST-0023: is_anomaly=false, delta_rank_pct=38
+→ CUST-0023: is_anomaly=false, score_rank_pct=38
 → CUST-0091: is_anomaly=true
-→ CUST-1443: is_anomaly=false, delta_rank_pct=42
+→ CUST-1443: is_anomaly=false, score_rank_pct=42
 → 7/10 neighbors anomalous
 
 find_similar_entities("CUST-0023", "customers_pattern", top_n=10)
@@ -81,14 +81,14 @@ find_similar_entities("CUST-0023", "customers_pattern", top_n=10)
 
 [Repeat for 4 more anomalous seeds — 5 calls total]
 
-[Sample 5 normal entities from delta_rank_pct 30-70]
+[Sample 5 normal entities from score_rank_pct 30-70]
 search_entities("customers", "<segment column>", "<value>", top_n=200)
-→ check_anomaly_batch(keys, "customers_pattern") → select 5 at delta_rank_pct 35-65
+→ check_anomaly_batch(keys, "customers_pattern") → select 5 at score_rank_pct 35-65
 find_similar_entities(each, "customers_pattern", top_n=10)
 check_anomaly_batch → no additional contamination targets found
 ```
 
-**Finding:** CUST-0023 (is_anomaly=false, delta_rank_pct=38) is surrounded
+**Finding:** CUST-0023 (is_anomaly=false, score_rank_pct=38) is surrounded
 by 8 anomalous geometric neighbors. Its own geometry has not crossed theta
 but its geometric context is saturated with anomalous entities. This is a
 leading indicator — monitor for crossing the anomaly boundary.

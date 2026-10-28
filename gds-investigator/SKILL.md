@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Requires hypertopos MCP server. Designed for Claude Code and compatible agents.
 metadata:
   author: Karol Kędzia
-  version: 0.9.0
+  version: 0.10.0
   mcp-server: hypertopos
 ---
 
@@ -50,7 +50,7 @@ edge-dependent tools (`find_counterparties`, `find_geometric_path`,
 
 ### Sphere health gates
 
-**Pattern-level auditors in `dim_quality_warnings`** — beyond `dead_dim` and `sparse_dim` (per-dim signals), `sphere_overview` also surfaces `dominant_dim_mass` (pattern-level: one dim accounts for ≥70% of tail variance — sphere is effectively a one-dim detector on this pattern), `negative_space` (gaussian-declared dims that empirically sit at zero — the gaussian z-score is wrong for them), `non_normal_dim` (per-dim: a `kind='gaussian'` dim has Shapiro-Wilk / KS `p < 0.01` at build time — the z-score percentile semantics are unstable; recommend `log1p` / `sqrt` / `rank` transform or kind re-declaration), and `heteroscedasticity` (pattern-level: Brown-Forsythe Levene `p < 0.01` on `delta_norm` partitioned by `group_by_property` — the global θ assumption is statistically violated, so a single global threshold produces unequal false-positive rates per group). When `dominant_dim_mass` fires, cross-check by inspecting `reliability_flags.single_dim_driven` incidence on `find_anomalies` top-N for that pattern — pattern-level dominance ⟹ high per-polygon incidence agreement. When `negative_space` fires, treat the affected dim's contribution to `delta_norm` as suspect and prefer `kind='bernoulli'` / `kind='poisson'` re-declaration over per-entity drill-down. When `non_normal_dim` fires (and `negative_space` does not), the dim's z-score is a poor anomaly scorer because the empirical distribution is heavy-tailed; raise a calibration ticket — variance-stabilizing transform in the column source script + rebuild fixes it. When `heteroscedasticity` fires, the pattern already carries per-group calibration via `group_by_property` (the warning is confirmation it was statistically warranted), but cross-group anomaly score comparison is suspect; use `aggregate(event_pattern_id, group_by_line=<related_line>, group_by_property="<line_id>:<prop_col>")` to inspect per-group anomaly rates before drawing conclusions across the whole pattern.
+**Pattern-level auditors in `dim_quality_warnings`** — beyond `dead_dim` and `sparse_dim` (per-dim signals), `sphere_overview` also surfaces `dominant_dim_mass` (pattern-level: one dim accounts for ≥70% of tail variance — sphere is effectively a one-dim detector on this pattern) and `negative_space` (gaussian-declared dims that empirically sit at zero — the gaussian z-score is wrong for them). When `dominant_dim_mass` fires, cross-check by inspecting `reliability_flags.single_dim_driven` incidence on `find_anomalies` top-N for that pattern — pattern-level dominance ⟹ high per-polygon incidence agreement. When `negative_space` fires, treat the affected dim's contribution to `delta_norm` as suspect and prefer `kind='bernoulli'` / `kind='poisson'` re-declaration over per-entity drill-down.
 
 **Label-aware dim audit (`audit_pattern_dims`)** — when the sphere carries a `label_audit:` block in `sphere.yaml` (`label_aware_available: true` on `get_sphere_info`), call `audit_pattern_dims(pattern_id, top_k=10)` to surface label-discriminating dims. The tool returns per-dim raw mu/sigma plus class-conditioned `mu_pos` / `sigma_pos` / `mu_neg` / `sigma_neg`, `cohens_d_pos_neg`, and the per-dim component of the Fisher LDA direction vector. Each dim carries `recommended_action` ∈ {`keep`, `split`, `drop_low_separation`, `investigate_drift`, `kind_mismatch_review`}. Use to: (a) confirm which dims are actually driving the positive class — high `|direction_component|` ⟹ informative axis; (b) flag dims with high `cohens_d_pos_neg` but low `|direction_component|` as candidates for `split` (compound signal — the raw separation is real but the dim conflates two regimes); (c) flag `drop_low_separation` candidates pre-rebuild (`|cohens_d| < 0.1` ⟹ dim contributes noise to delta vector). Spheres without `label_audit:` return a fallback shape with raw stats and `recommended_action: keep` — still useful for surfacing per-dim mu/sigma ranking without label semantics.
 
@@ -63,7 +63,7 @@ Copy this list and tick it off per investigation:
 - [ ] `edge_stats` checked; edge-dependent tools skipped when it returns null
 - [ ] Suspects chosen (ground-truth recall table, or FDR-controlled `find_anomalies`)
 - [ ] Each suspect gated (`reliability_flags`, `assess_anomaly_certainty`) before a case opens
-- [ ] Root cause traced and the repair set from `explain_anomaly` reported
+- [ ] Root cause traced and the evidence from `explain_anomaly` reported (bits per axis / dimension, or the repair set)
 - [ ] At least 3 hypotheses tested; rejected ones kept in the report
 - [ ] Every finding classified CONFIRMED / SUSPECTED / FALSE POSITIVE; FP rate stated
 - [ ] `investigation_coverage` run before closing
@@ -81,7 +81,7 @@ search_entities(line_id, label_property, "bad_value") -> get "bad" entity keys
 
 Batch recall check (preferred — 1 call instead of 2N):
   check_anomaly_batch(bad_keys, pattern_id)
-  -> returns is_anomaly + delta_rank_pct per key + recall_if_all_bad
+  -> returns is_anomaly + score_rank_pct per key + recall_if_all_bad
 
 Run this for each pattern that covers these entities — including patterns
 on OTHER entity lines that share the same primary keys.
@@ -120,9 +120,12 @@ Threshold: `combined_p < 0.10` (relaxed vs typical 0.05).
 ```
 anomaly_summary on each pattern -> which has strongest signal?
 find_anomalies(best_pattern, top_n=10) -> top suspects
-  Optional: find_anomalies(best_pattern, top_n=10, min_confidence=0.7)
+  Optional (calibrated pattern): keep the entities with the smallest conformal_p
+    -> is_anomaly is the alarm budget, so expect about (1 - anomaly_percentile/100)
+       of a clean population in the list; the smallest p are the strongest leads
+  Optional (other patterns, population <= 50K):
+    find_anomalies(best_pattern, top_n=10, min_confidence=0.7)
     -> filter to entities where bootstrap confidence >= 0.7
-    -> reduces the FP investigation burden when population <= 50K
 Check BOTH ends: if top anomalies all have negative deltas (below mean),
   use attract_boundary(alias, pattern, direction="in") to find entities
   at the positive extreme. Anomaly = extreme in EITHER direction.
@@ -132,10 +135,10 @@ Form hypotheses about what drives anomalies, test them
 
 ---
 
-## FDR control and diverse selection
+## Alarm budget and diverse selection
 
-Start the suspect list with `fdr_alpha=0.05` on `find_anomalies` and use `select="diverse"` for K>10.
-Storey FDR, drift-direction priority and `decompose_drift` are in
+Start the suspect list from `find_anomalies` (ordered by `conformal_p` ascending, then `anomaly_score` descending; `is_anomaly` is the calibrated alarm budget) and use `select="diverse"` for K>10.
+The alarm budget, drift-direction priority and `decompose_drift` are in
 [references/tuning-and-troubleshooting.md](references/tuning-and-troubleshooting.md).
 
 ---
@@ -169,7 +172,7 @@ Two flags fire independently:
   attribution. Likely a data-quality artefact (saturated counter,
   outlier on one property) rather than a multi-dim fraud signal. Sanity-
   check the `dominant_dim` value before escalating.
-- `low_confidence_bucket=true` — bootstrap-derived `anomaly_confidence`
+- `low_confidence_bucket=true` (patterns without the calibrated score) — bootstrap-derived `anomaly_confidence`
   is below 0.5. The anomaly flag is fragile to population resampling —
   the entity is on the borderline. Treat as a soft hit; corroborate
   with one more detector (a chain pattern, a witness-cohort overlap, a
@@ -258,7 +261,9 @@ High contagion + large witness cohort = confirmed pattern (not isolated outlier)
 
 **As-of graph reconstruction:** for incident forensics, all six edge-table graph primitives (`contagion_score`, `contagion_score_batch`, `entity_flow`, `degree_velocity`, `propagate_influence`, `find_counterparties`) accept an optional `timestamp_cutoff` parameter (Unix seconds). When set, only edges with `timestamp <= cutoff` are considered. Use this to answer *"what did the neighborhood look like at time T?"* — e.g. pass the incident timestamp to contagion_score to see contamination state on that day, not today.
 
-Always report the repair set from `explain_anomaly`. Format:
+Always report the evidence from `explain_anomaly`. On a calibrated pattern (non-empty `score_dims`) format:
+"Evidence: p={conformal_p} ({bits} bits); axes {axis: bits}; top dims {dim (z, bits)}."
+On other patterns report the repair set:
 "Repair: zero {repair_size} dims ({labels}) -> residual {residual_norm} (below theta={theta_norm})."
 
 ---
@@ -270,17 +275,19 @@ List tools answer in the compact format by default: an `omitted` map means numer
 ```
 cross_pattern_profile(key, line_id)     -> multi-source risk overview
 goto(key, line_id) -> get_polygon(pattern_id) -> anomaly dimensions
-explain_anomaly(key, pattern_id)        -> top_dimensions [{dim, kind, delta, pct_of_total}]
-  pct_of_total is the dim's share of delta_norm² (the metric behind is_anomaly);
+explain_anomaly(key, pattern_id)        -> calibrated pattern: conformal_p, bits (-log2 p), axes {axis: {rank, bits}},
+  top_dimensions [{dim, z, bits, pct_of_total}] — bits add up per axis, z is the rank-Gaussian value.
+  Other patterns: top_dimensions [{dim, kind, delta, pct_of_total}]
+  pct_of_total is the dim's share of delta_norm² (the metric behind is_anomaly there);
   top_dimensions[0] is the dim whose removal drops delta_norm most.
   Each dim shows kind (gaussian/poisson/bernoulli) and signed delta.
   Interpret by kind: poisson dim unusual = count structure anomaly;
     gaussian dim extreme = magnitude anomaly; bernoulli dim = binary flag fired.
-anomaly_confidence (from get_polygon or find_anomalies result):
+anomaly_confidence (patterns without the calibrated score; from get_polygon or find_anomalies result):
   >= 0.8  -> stable anomaly: high-confidence finding, proceed with full investigation
   0.5-0.8 -> borderline: investigate but maintain FP possibility in assessment
   < 0.5   -> likely false positive: verify with additional sources before escalating
-  (confidence is absent for populations > 50K, group_by_property, or use_mahalanobis patterns)
+  (confidence is absent for populations > 50K, group_by_property and calibrated patterns — read conformal_p there)
 dive_solid(key, pattern_id)             -> temporal history
 find_similar_entities(key, pattern_id)  -> geometric neighbors
   dim_mask=[<dims from anomaly_dimensions>] -> focus on driving dims
@@ -344,7 +351,7 @@ For every anomaly finding, consider whether it is a true positive or false posit
   — if 10+ normal entities have same shape, it is likely a false positive
 - Use `metric="cosine"` when comparing anomaly profile shape regardless of severity — "same type of anomaly, different scale"
 - Use `dim_mask` to focus similarity on dimensions from `anomaly_dimensions` output — finds entities similar only in the dimensions that drive the anomaly, ignoring irrelevant ones
-- Use `find_anomalies(metric="Linf")` to catch single-dimension spikes that L2 norm dilutes — entities with one extreme dimension but normal on others
+- Use `find_anomalies(metric="Linf")` to catch single-dimension spikes that L2 norm dilutes — entities with one extreme dimension but normal on others (patterns scored by `delta_norm`; on calibrated patterns read `explain_anomaly.top_dimensions[].bits`)
 - Read `bregman_divergence` on `find_anomalies` results (distribution-aware) next to `delta_norm` — the better signal on mixed-type patterns (counts + amounts + binary flags), particularly when `dimension_kinds` shows a mix of poisson/gaussian/bernoulli
 - Dormant/inactive entities being anomalous is expected, not a finding
 
@@ -371,7 +378,7 @@ Maintain three lists throughout the investigation session:
 
 - **`checked[]`** — entities where full investigation is complete (goto + get_polygon + explain_anomaly + counterparties done). Never re-investigate.
 - **`leads[]`** — entities flagged by tools but not yet investigated. Each lead carries a `lead_score` (see Decision Scoring). Sources: `find_anomalies`, `passive_scan`, `find_witness_cohort`, `propagate_influence`, `investigation_coverage.unexplored_anomalous`.
-- **`dead_ends[]`** — entities investigated and found uninteresting (`delta_rank_pct < 70`, no contagion, no temporal signal). Never revisit.
+- **`dead_ends[]`** — entities investigated and found uninteresting (`score_rank_pct < 70`, no contagion, no temporal signal). Never revisit.
 
 **Protocol:**
 1. Before investigating any entity: check `checked[]` and `dead_ends[]`. Skip if present.
@@ -389,7 +396,7 @@ Proactive limits to prevent runaway investigations:
 | Guard | Threshold | Action |
 |-------|-----------|--------|
 | **Depth limit** | 3 hops from seed entity | Stop expanding, summarize findings |
-| **Strength gate** | `delta_rank_pct < 70` | Skip entity UNLESS `contagion_score > 0.3` or in witness cohort |
+| **Strength gate** | `score_rank_pct < 70` | Skip entity UNLESS `contagion_score > 0.3` or in witness cohort |
 | **Contagion gate** | `contagion_score < 0.2` | Do NOT proceed to network expansion — entity is isolated |
 | **Consecutive call limit** | 3 calls to same tool on same entity | Move to next lead |
 | **Stale lead expiry** | Lead untouched for 10+ tool calls | Demote below fresh leads |
@@ -410,7 +417,7 @@ lead_score = 0.35 × anomaly_strength
 
 | Component | Source | Value |
 |-----------|--------|-------|
-| `anomaly_strength` | `delta_rank_pct / 100` | 0.0–1.0 |
+| `anomaly_strength` | `score_rank_pct / 100` | 0.0–1.0 |
 | `graph_support` | `contagion_score` | 0.0–1.0 (0 if unchecked) |
 | `temporal_signal` | appears in `find_drifting_entities` or `detect_trajectory_anomaly` | 0.0 or 1.0 |
 | `novelty_bonus` | appears in `find_novel_entities` or `find_witness_cohort` | 0.0 or 1.0 |
@@ -481,3 +488,5 @@ Full investigation examples: [references/examples.md](references/examples.md)
 `find_calibration_influencers(classify="hidden")` finds entities that shape what "normal"
 means; `find_density_gaps` finds dim combinations that should be populated but are not.
 Both are in [references/population-analyses.md](references/population-analyses.md).
+
+`find_calibration_influencers` applies only to patterns scored by `delta_norm` (no `score_dims`). On calibrated patterns use `explain_anomaly` instead.

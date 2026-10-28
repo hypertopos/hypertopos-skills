@@ -245,7 +245,7 @@ check_anomaly_batch(primary_keys=["SUPP-1234","SUPP-4002","SUPP-4010","SUPP-4011
 
 All 8 confirmed anomalous. SUPP-4001 (itself normal) sits in a neighborhood that is 80% anomalous.
 
-**Finding:** "SUPP-4001 is geometrically normal (is_anomaly=false, delta_rank_pct=45) but 8 of its 10 nearest neighbors are anomalous (80%). This is a contamination target — the entity's own geometry is shifting toward the anomalous cluster but has not yet crossed the theta threshold. High monitoring priority."
+**Finding:** "SUPP-4001 is geometrically normal (is_anomaly=false, score_rank_pct=45) but 8 of its 10 nearest neighbors are anomalous (80%). This is a contamination target — the entity's own geometry is shifting toward the anomalous cluster but has not yet crossed the theta threshold. High monitoring priority."
 
 ---
 

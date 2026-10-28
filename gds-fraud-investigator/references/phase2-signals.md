@@ -2,11 +2,11 @@
 
 Detail behind the screening and Phase 2 investigation steps of the fraud investigator skill.
 
-### FDR control and diverse selection
+### Alarm budget and diverse selection
 
-When using `find_anomalies` for fraud screening, set `fdr_alpha=0.05` to apply Benjamini-Hochberg FDR control — false positives waste investigator time and erode trust in the alert pipeline, so controlling the false discovery rate is critical. When requesting K>10 results, use `select="diverse"` to surface different fraud typologies (structuring, layering, round-tripping) instead of 50 variants of the same high-volume pattern; this leverages submodular facility location to maximize typological coverage in the result set. Both parameters also apply to `attract_boundary`; `find_hubs` and `find_drifting_entities` accept `select` only (rank-only scores, no FDR).
+On a calibrated pattern (non-empty `score_dims`), `is_anomaly` means `conformal_p ≤ 1 − anomaly_percentile/100` — the alarm budget: at the 95th percentile about 5 % of a clean population is flagged. False positives waste investigator time and erode trust in the alert pipeline, so size the screening queue to that load: work it in `anomaly_score` order (the `find_anomalies` default) and send the smallest `conformal_p` to investigators first. There is no entity-level FDR to switch on. When requesting K>10 results, use `select="diverse"` to surface different fraud typologies (structuring, layering, round-tripping) instead of 50 variants of the same high-volume pattern; this leverages submodular facility location to maximize typological coverage in the result set. `select` also applies to `attract_boundary`, `find_hubs` and `find_drifting_entities`.
 
-**Adaptive Storey FDR.** On transaction event patterns whose delta distribution has a real null mass (normal accounts far below the alert threshold) plus an anomalous tail (genuine high-risk accounts), `fdr_method="storey"` (on the χ² p-values FDR always uses) relaxes the BH threshold to recover 10–15% more candidates at the same α. Use this when the default BH top-K is systematically leaving edge cases that investigators later flag as true positives. Keep the default `fdr_method="bh"` on account_stress-style patterns where every entity carries some stress signal, because there Storey cannot distinguish null mass from tail.
+**Where alerts concentrate — the cell gate.** When the pattern declares `fdr_hierarchy:` (e.g. bank, region) or `fdr_temporal_hierarchy:` (e.g. week), `find_anomalies(..., fdr_alpha=0.05, fdr_resolution="<level>")` keeps the cells enriched in flagged accounts (hypergeometric test per cell, Storey over cells by default) — the evidence for "this bank is the hot-spot" in a SAR narrative (`cell_q_spatial`, `cell_path` on each survivor).
 
 **Counterfactual suite (4 tools).** Different questions, different aggregation level.
 

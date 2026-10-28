@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Requires hypertopos MCP server with a financial transaction sphere (account, pair, chain patterns).
 metadata:
   author: Karol Kędzia
-  version: 0.9.0
+  version: 0.10.0
   mcp-server: hypertopos
 ---
 
@@ -50,8 +50,8 @@ and `extract_chains` instead.
 All typology recipes use **relative thresholds** based on population geometry, not
 hardcoded amounts. This makes them dataset-agnostic and currency-independent.
 
-- **Amount thresholds** → use `delta_rank_pct > N` or `conformal_p < X` instead of fixed amounts
-- **Count thresholds** → use population percentiles (e.g. "top 5% by tx_count" = `delta_rank_pct > 95`)
+- **Amount thresholds** → use `score_rank_pct > N` or `conformal_p < X` instead of fixed amounts
+- **Count thresholds** → use population percentiles (e.g. "top 5% by tx_count" = `score_rank_pct > 95`)
 - **"High"/"significant"** → means above the pattern's anomaly boundary (`is_anomaly = true`)
 - **"Many"/"few"** → relative to entity's own segment (per-group theta handles this automatically)
 
@@ -110,9 +110,9 @@ If `passive_scan` is not available, manually combine:
 4. Intersect: entities in 2+ sources = high confidence
 ```
 
-### FDR control and diverse selection
+### Alarm budget and diverse selection
 
-Screen with `fdr_alpha=0.05` and `select="diverse"` for K>10; when to switch to Storey FDR is in
+Screen with `select="diverse"` for K>10 and read `is_anomaly` as the alarm budget (`conformal_p ≤ 1 − anomaly_percentile/100` on calibrated patterns); the cell gate for hot-spot regions is in
 [references/phase2-signals.md](references/phase2-signals.md).
 
 ### Recipe: Risk Triage
@@ -312,7 +312,7 @@ Before closing an alert, check for exculpatory evidence:
 **Metric and dimension focus for FP elimination:**
 - `metric="cosine"` — compare anomaly profile shape ignoring magnitude. Entities with same pattern but different scale will be cosine-close. Use when "same type of activity" matters more than "same scale."
 - `dim_mask=[<dims from anomaly_dimensions>]` — focus similarity on the dimensions that drive the anomaly, ignoring irrelevant ones. Read the target entity's `anomaly_dimensions` first, then pass those labels as the mask.
-- `find_anomalies(metric="Linf")` — rank by max single-dimension spike. Catches entities with one extreme dimension that L2 norm dilutes. Use for single-behavior typologies.
+- `find_anomalies(metric="Linf")` — rank by max single-dimension spike (patterns scored by `delta_norm`; calibrated patterns reject it — there `explain_anomaly.top_dimensions` shows whether one dimension carries most of the bits). Catches entities with one extreme dimension that L2 norm dilutes. Use for single-behavior typologies.
 - `bregman_divergence` on every `find_anomalies` result — distribution-aware score, more telling than L2 `delta_norm` on patterns mixing counts (poisson), amounts (gaussian), and flags (bernoulli). Check `dimension_kinds` in sphere_overview — if mixed kinds, compare the two scores.
 
 **Declarative compliance rules** — when the sphere is built with `conformance_rules:` declared on a pattern in `sphere.yaml`, `find_conformance_violations(pattern_id, severity_min="medium")` surfaces entities that broke human-authored expectations. Conformance violations are independent from `delta_norm` anomalies; an entity can be one, the other, or both. High-value workflow: `find_conformance_violations` → pick top violators → `investigate_entity(primary_key)` on each to drill into whether the rule break is also accompanied by geometric anomaly. AML adoption surface for SAR-narrative composition: cite the broken rule by `rule_id`, attach the entity's geometric explanation from `investigate_entity` as supporting evidence.
@@ -381,7 +381,7 @@ Maintain three lists throughout the investigation session:
 
 - **`checked[]`** — entities where Entity 360 is complete (polygon + explain + counterparties done). Never re-investigate.
 - **`leads[]`** — entities flagged by tools but not yet investigated. Each lead carries a `lead_score` (see Decision Scoring). Sources: `find_anomalies`, `passive_scan`, `find_witness_cohort`, `propagate_influence`, `investigation_coverage.unexplored_anomalous`.
-- **`dead_ends[]`** — entities investigated and found uninteresting for this thread (`delta_rank_pct < 70`, no contagion, no temporal signal). Never revisit.
+- **`dead_ends[]`** — entities investigated and found uninteresting for this thread (`score_rank_pct < 70`, no contagion, no temporal signal). Never revisit.
 
 **Protocol:**
 1. Before investigating any entity: check `checked[]` and `dead_ends[]`. Skip if present.
@@ -397,7 +397,7 @@ Proactive limits to prevent runaway investigations:
 | Guard | Threshold | Action |
 |-------|-----------|--------|
 | **Depth limit** | 3 hops from seed entity | Stop expanding, summarize findings |
-| **Strength gate** | `delta_rank_pct < 70` | Skip entity UNLESS `contagion_score > 0.3` or in witness cohort |
+| **Strength gate** | `score_rank_pct < 70` | Skip entity UNLESS `contagion_score > 0.3` or in witness cohort |
 | **Contagion gate** | `contagion_score < 0.2` | Do NOT proceed to network expansion — entity is isolated |
 | **Consecutive call limit** | 3 calls to same tool on same entity | Move to next lead |
 | **Stale lead expiry** | Lead untouched for 10+ tool calls | Demote below fresh leads |
@@ -418,12 +418,12 @@ lead_score = 0.35 × anomaly_strength
 
 | Component | Source | Value |
 |-----------|--------|-------|
-| `anomaly_strength` | `delta_rank_pct / 100` | 0.0–1.0 |
+| `anomaly_strength` | `score_rank_pct / 100` | 0.0–1.0 |
 | `graph_support` | `contagion_score` | 0.0–1.0 (0 if unchecked) |
 | `temporal_signal` | appears in `find_drifting_entities` or `detect_trajectory_anomaly` | 0.0 or 1.0 |
 | `novelty_bonus` | appears in `find_novel_entities` or `find_witness_cohort` | 0.0 or 1.0 |
 
-**Triage levels** (anomaly_confidence available for populations <= 50K):
+**Triage levels** (anomaly_confidence available for populations <= 50K; absent on calibrated patterns, where `conformal_p` against the alarm budget is the stability read):
 - `>= 0.7` AND `anomaly_confidence >= 0.9` — CRITICAL: investigate immediately
 - `>= 0.7` AND `anomaly_confidence >= 0.7` — HIGH: investigate in current session
 - `>= 0.4` AND `anomaly_confidence >= 0.5` — MEDIUM: investigate if time permits
@@ -456,7 +456,7 @@ Worked end-to-end examples (full AML screening / typology detection / false-posi
 Beyond the per-suspect Phase 2 playbook above, four canonical scenarios get full per-step recipes in [`references/advanced-workflows.md`](references/advanced-workflows.md). One-line entry points:
 
 - **Detect coordinated population-shift attack** — group-level `find_group_influence` with `reinforcing_factor > 1.5` test; catches collusion rings / mule networks / duplicate-record injections that single-account anomaly detection misses by design.
-- **AML hidden-influencer triage → SAR candidate workflow** — `find_calibration_influencers(classify="hidden")` + AML adversarial-typology atom matching + `delta_norm ≥ 0.7 × theta_norm` near-threshold filter + group-coordination cross-check.
+- **AML hidden-influencer triage → SAR candidate workflow** — `find_calibration_influencers(classify="hidden")` + AML adversarial-typology atom matching + `delta_norm ≥ 0.7 × theta_norm` near-threshold filter + group-coordination cross-check. `find_calibration_influencers` applies to patterns scored by `delta_norm` only (no `score_dims`); on calibrated patterns use `explain_anomaly`.
 - **Branch-isolated exclusion calibration** — when hidden influencers are identified, run `recalibrate(pattern_id, branch="excl_branch", exclude_keys=[...hidden_keys...])` to fit without them while still scoring every entity. Then call `compare_branches(pattern_id, branch="excl_branch")` to see how many entities flip anomaly status (`flipped_in` / `flipped_out`; `flipped_in_top` / `flipped_out_top` name them) and whether the Jaccard overlap justifies the change. If the result is the intended calibration, `manage_branch(action="promote", name="excl_branch")` replays the recipes on main and removes the branch. If not, `manage_branch(action="delete", name="excl_branch")` discards it without touching main.
 - **Cross-pattern lead-lag for AML rapid-escalation** — `find_lead_lag` between two anchor patterns over the SAME entity line (structural prerequisite); detects whether behaviour shifts precede stress signatures. A typical AML config has one anchor per entity space, so this needs a sphere rebuild before it's usable.
 - **Edge-derived dimensions for AML detection** — five build-time per-edge dim functions (`pair_edge_count`, `position_in_chain`, `time_since_pair_last_edge`, `pair_amount_zscore`, `find_motif_structuring`) declared via `edge_dimensions:` on event patterns; lift per-edge geometry signal for layering / structuring detection.

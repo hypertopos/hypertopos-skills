@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Requires pip install "hypertopos[spark]" (PySpark 3.5 or 4, Python 3.12; on Databricks, Runtime 16+ or serverless environment 3+). Works on classic clusters and Spark Connect. Hand-off to an agent needs hypertopos-mcp.
 metadata:
   author: Karol Kędzia
-  version: 0.9.3
+  version: 0.10.0
 ---
 
 # GDS on Spark
@@ -42,11 +42,11 @@ Rules of thumb:
 
 | Situation | Choice |
 |---|---|
-| Entities of very different scale mixed together (retail and business, small and large merchants) | `group_by` that separates them, otherwise the large ones are "anomalous" just for being large |
+| Entities of very different scale mixed together (retail and business, small and large merchants) | `group_by` to read each entity's deviation within its kind; flags stay global, so rank inside a group by filtering on the group column |
 | One homogeneous population | no `group_by` |
 | Many tiny groups | keep `min_group_size` (default 100): smaller groups are pooled and marked `calibration_scope = "pooled"` |
 
-With groups, `delta_norm` and `is_anomaly` are relative to the entity's own group, while `p_value` and `rank_pct` place that distance in the whole population. Compare flags inside a group by filtering on the group column.
+With groups, only `delta_norm` and the reasons' `delta` are relative to the entity's own group; `anomaly_score`, its shares (`pct_of_total`), `p_value`, `score_rank_pct` and `is_anomaly` are global. Compare inside a group by filtering on the group column.
 
 ## 3. Run it
 
@@ -55,7 +55,7 @@ from hypertopos.spark import find_anomalies, explain
 
 result = find_anomalies(events, entity="from_account", counterparty="to_account",
                         amount="amount", time="ts", group_by="segment")
-result.orderBy("delta_norm", ascending=False).show(20, truncate=False)
+result.orderBy("anomaly_score", ascending=False).show(20, truncate=False)
 ```
 
 - A second call on the same table with the same settings reuses the cached calibration. Pass `cache=False` after rewriting a plain file in place.
@@ -65,15 +65,18 @@ result.orderBy("delta_norm", ascending=False).show(20, truncate=False)
 
 | Column | How to read it |
 |---|---|
-| `delta_norm` | distance from the (group's) centre in standard deviations across all dimensions; rank by it |
-| `is_anomaly` | beyond the population's own `percentile` (99 by default, about 1 % of entities). A threshold, not a verdict |
-| `p_value` | share of the population at least as far out. 0.001 means 1 in 1,000 |
-| `rank_pct` | 0–100 position in the population |
-| `top_reasons` | up to three dimensions that move the entity most, with signed `delta` and share of `delta_norm²` |
+| `anomaly_score` | calibrated evidence score; rank by it |
+| `is_anomaly` | `p_value` at most `1 − percentile/100` (99 by default): the alarm budget, about 1 % of a clean population. A budget, not a verdict |
+| `p_value` | conformal p of the score: share of the calibration population scoring at least as high. 0.001 means 1 in 1,000 |
+| `score_rank_pct` | 0–100 position of the score in the population |
+| `delta_norm` | distance from the (group's) centre in standard deviations; the shape, for reference, not the flag |
+| `top_reasons` | up to three dimensions that drive `anomaly_score` most, with signed `delta` and share of the score in percent (the split `explain_anomaly` gives on a sphere) |
 | `calibration_scope` | with `group_by`: `group`, `pooled` or `global` |
 
+Spark scores on the Mahalanobis axis only (no event motion, `current`): a sphere built from the same events with an event pattern can give the same entities different scores and p-values. Do not compare the two numbers as if they were one score.
+
 Triage before reporting anything:
-1. **Read `top_reasons` for every entity you report.** If one dimension holds most of the distance (`pct_of_total` > 80), the finding is that one dimension being extreme. Check that the dimension is meaningful and not a data artefact, such as a unit change, a duplicated feed or a test account.
+1. **Read `top_reasons` for every entity you report.** If one dimension holds most of the score (`pct_of_total` > 80), the finding is that one dimension being extreme. Check that the dimension is meaningful and not a data artefact, such as a unit change, a duplicated feed or a test account.
 2. **Check the event counts.** Shares, spreads and ratios on few events are already pulled toward the mean, but an entity with very few events is still a weak finding. `explain` shows the adjusted value; quote the counts (`n_out`, `n_in` columns of `sphere_of(result).geometry()`, with the default dimensions) when it matters.
 3. **Treat `pooled` and `global` scopes with care.** A pooled entity was compared with a mix of small groups, and a `global` one (from `score`) belonged to a group never seen at calibration.
 4. **Many flags on one segment or one day** usually means a population shift or a data problem, not many independent anomalies. Group the flagged rows by segment and date before reporting them one by one.
@@ -82,11 +85,11 @@ Triage before reporting anything:
 ## 5. Explain an entity
 
 ```python
-explain(result, top_n=10).show(30, truncate=False)          # the most distant entities
+explain(result, top_n=10).show(30, truncate=False)          # the highest-scoring entities
 explain(result, entities=["ACC-1029"]).show(truncate=False)  # named ones, every dimension
 ```
 
-Each row gives `value`, the population `mu` and `sigma` (the group's with `group_by`), `delta`, `pct_of_total` and `direction`. Write the explanation in the data's terms. For example: "sends to 14 distinct counterparties against a population mean of 3 (+5.2σ), 46 % of its distance". `explain` needs the result DataFrame itself; selecting away `entity` drops the link to the calibration.
+Each row gives `value`, the population `mu` and `sigma` (the group's with `group_by`), `delta`, `pct_of_total` and `direction`. Write the explanation in the data's terms. For example: "sends to 14 distinct counterparties against a population mean of 3 (+5.2σ), 46 % of its anomaly score". `explain` needs the result DataFrame itself; selecting away `entity` drops the link to the calibration.
 
 ## 6. Score new data without recalibrating
 
@@ -115,7 +118,7 @@ With the MCP server on that sphere, the investigation continues with the other s
 ## Anti-patterns
 
 - Reporting `is_anomaly = true` as "fraud" or "suspicious" without reading `top_reasons` and the event counts.
-- Mixing entities of very different scale without `group_by`, then reporting the largest ones as anomalies.
+- Mixing entities of different kinds and reporting the flagged ones without checking the group-relative reasons.
 - Recalibrating on each new batch for monitoring, instead of `score(..., like=...)`.
 - Passing labels as dimensions, or tuning `percentile` until a known case is flagged.
 - Collecting the event table to the driver (`toPandas()` on raw events). Only the per-entity result is small.

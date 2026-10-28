@@ -61,7 +61,7 @@ patterns:
 
 **When to change:**
 - `bootstrap_iterations: 0` — disable bootstrap entirely. Use during development
-  iteration (fast builds) or when the pattern uses `group_by_property` / `use_mahalanobis`
+  iteration (fast builds) or when the pattern uses `group_by_property` or gets the calibrated score
   (confidence is not emitted for those anyway).
 - `bootstrap_iterations: 50` — faster builds, rougher confidence estimates. Acceptable
   for exploratory spheres where you only need coarse stable/unstable classification.
@@ -69,8 +69,8 @@ patterns:
   where `min_confidence` is used as an alert threshold. Build time scales linearly.
 
 **Note:** `anomaly_confidence` is not computed for `group_by_property` patterns (per-cohort
-calibration) or `use_mahalanobis` patterns. It is also skipped when population > 50K — use
-`conformal_p` for large populations instead.
+calibration) or for patterns with the calibrated score. It is also skipped when population > 50K — use
+`conformal_p` instead.
 
 ### Generalized dimension blocks (g/t/s)
 

@@ -26,12 +26,13 @@ Symptom → fix tables for sphere builds, calibration, and design.
 
 | Signal | Fix |
 |--------|-----|
+| anomaly_rate = 0% on a calibrated pattern (non-empty `score_dims`) | The smallest possible `conformal_p` is `1/(n+1)`; with fewer than about `100/(100 − anomaly_percentile)` entities nothing can reach the budget. Lower `anomaly_percentile` or merge the line into a larger population |
 | anomaly_rate = 0% | Lower `anomaly_percentile` to 90 |
 | anomaly_rate > 20% | Raise `anomaly_percentile` to 99 |
 | calibration_health = poor | Add `group_by_property` or adjust `gmm_n_components` |
 | anomaly_rate higher with `group_by_property` | Expected -- per-group calibration is more sensitive |
 | `sphere_overview` rate != `find_clusters` rate | Rebuild sphere with current version |
-| A few entities distort μ/σ (`find_calibration_influencers` names them) | Try the fit without them on a branch: `recalibrate(pattern_id, branch="trial", exclude_keys=[...])` scores every entity against a calibration that leaves those keys out; `compare_branches(pattern_id, branch="trial")` shows flips and drift; `manage_branch(action="promote", name="trial")` keeps it, `manage_branch(action="delete", name="trial")` discards it |
+| A few entities distort μ/σ (`find_calibration_influencers` names them — applies to patterns without `score_dims`; on calibrated patterns use `explain_anomaly` and branch-isolated `recalibrate`) | Try the fit without them on a branch: `recalibrate(pattern_id, branch="trial", exclude_keys=[...])` scores every entity against a calibration that leaves those keys out; `compare_branches(pattern_id, branch="trial")` shows flips and drift; `manage_branch(action="promote", name="trial")` keeps it, `manage_branch(action="delete", name="trial")` discards it |
 
 ### Design issues
 

@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Requires hypertopos CLI (pip install hypertopos). No live MCP session needed for design phases.
 metadata:
   author: Karol Kedzia
-  version: 0.9.0
+  version: 0.10.0
   mcp-server: hypertopos
 ---
 
@@ -246,7 +246,7 @@ Read the matching section when the design needs one of them:
 
 ### Advanced features
 
-AML-specific features (precomputed dims, graph features, chain lines, Mahalanobis)
+AML-specific features (precomputed dims, graph features, chain lines, scoring axes)
 are documented in [references/advanced-features.md](references/advanced-features.md).
 
 ### Common patterns by domain
@@ -368,6 +368,7 @@ hypertopos build --config sphere.yaml --force --verbose
 ```
 open_sphere("my_sphere")
 sphere_overview()                    # Check: anomaly_rate ~5%, calibration_health = good, profiling_alerts, has_temporal
+get_sphere_info()                    # Check: score_dims / score_axes on the continuous anchor patterns
 get_sphere_info()                    # Check: all lines present, total_rows correct
 get_line_profile("entities", "key_property")  # Check: value distribution makes sense
 find_anomalies("entity_pattern", top_n=3)     # Check: anomalies have meaningful dimensions

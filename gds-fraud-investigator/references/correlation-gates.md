@@ -30,10 +30,12 @@ Once a feature is classified as NOISE, DIRECTION-INCONSISTENT, or VOLUME-MEDIATE
 - **DIRECTION-INCONSISTENT or VOLUME-MEDIATED → `0.5`.** Real but interpretation depends on the regime — keep at half weight as soft demotion.
 - **ROBUST + high partial r → leave at `1.0` (default).**
 
+`dimension_weights` reweights the shape-space `delta_norm`, so it applies to patterns scored by `delta_norm` (event, GMM, discrete). On a calibrated pattern (non-empty `score_dims`) it raises an error — drop a NOISE dim from the pattern's relations and rebuild instead, and read `explain_anomaly.top_dimensions[].bits` to see how much of an entity's evidence a VOLUME-MEDIATED dim carries.
+
 ```python
-# Account pattern triage that respects gate verdicts:
+# Triage on a pattern scored by delta_norm, respecting gate verdicts:
 nav.find_anomalies(
-    "account_pattern",
+    "<delta_norm_scored_pattern>",
     top_n=100,
     dimension_weights={
         "return_ratio": 0.0,        # NOISE — fail every bucket

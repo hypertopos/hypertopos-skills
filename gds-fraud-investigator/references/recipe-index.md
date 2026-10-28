@@ -9,7 +9,7 @@ Which investigation tool fits which pattern type, and what each edge-table recip
 | FAN-OUT | high out_degree + many dest_banks | find_counterparties → check all targets; `edge_stats` confirms degree distribution |
 | FAN-IN | high in_sources | find_counterparties → who feeds this account?; `edge_stats` for inbound concentration |
 | CYCLE | pair anomalies + chain is_cyclic | `extract_chains(pattern, seed_nodes=[suspect], bidirectional=True)` → filter cyclic; `find_geometric_path(scoring="anomaly")` traces the ring |
-| STACK | delta_rank_pct 90-95 (borderline) | `extract_chains(pattern, seed_nodes=[suspect], min_hops=3)` → check chain membership at runtime |
+| STACK | score_rank_pct 90-95 (borderline) | `extract_chains(pattern, seed_nodes=[suspect], min_hops=3)` → check chain membership at runtime |
 | BIPARTITE | pair anomalies + community | aggregate(group_by_property="community_id") |
 | RANDOM | chain anomalies | `extract_chains(pattern, seed_nodes=[suspect], max_hops=6)` → longest reachable chains |
 | BRIDGE | entity straddles two communities | `cluster_bridges(pattern_id)` → bridges with anomalous status on both sides are high-risk connectors |

@@ -15,11 +15,11 @@ returns and how to interpret it.
   "anomaly_count": 3,
   "recall_if_all_bad": 0.60,
   "results": [
-    {"key": "ACCT-42",  "is_anomaly": true,  "delta_rank_pct": 0.97},
-    {"key": "ACCT-107", "is_anomaly": true,  "delta_rank_pct": 0.94},
-    {"key": "ACCT-215", "is_anomaly": false, "delta_rank_pct": 0.62},
-    {"key": "ACCT-330", "is_anomaly": true,  "delta_rank_pct": 0.91},
-    {"key": "ACCT-501", "is_anomaly": false, "delta_rank_pct": 0.45}
+    {"key": "ACCT-42",  "is_anomaly": true,  "score_rank_pct": 0.97},
+    {"key": "ACCT-107", "is_anomaly": true,  "score_rank_pct": 0.94},
+    {"key": "ACCT-215", "is_anomaly": false, "score_rank_pct": 0.62},
+    {"key": "ACCT-330", "is_anomaly": true,  "score_rank_pct": 0.91},
+    {"key": "ACCT-501", "is_anomaly": false, "score_rank_pct": 0.45}
   ]
 }
 ```
@@ -28,9 +28,9 @@ returns and how to interpret it.
 - `recall_if_all_bad` = what fraction of "bad" keys are caught as anomalies
 - Run this on EACH pattern covering these entities — pick the one with
   highest recall
-- `delta_rank_pct > 0.90` = entity is in the extreme tail even if not
+- `score_rank_pct > 0.90` = entity is in the extreme tail even if not
   flagged as anomaly (near-miss)
-- Missed keys with low `delta_rank_pct` (ACCT-501 at 0.45) = geometrically
+- Missed keys with low `score_rank_pct` (ACCT-501 at 0.45) = geometrically
   normal, pattern does not capture this type of "bad"
 
 **Finding (recall table):**
@@ -41,7 +41,7 @@ returns and how to interpret it.
 | transaction_pattern | 187 | 4/5 | 80% | 2.1% |
 
 "transaction_pattern achieves 80% recall on defaulted accounts. ACCT-501
-(missed) has delta_rank_pct=0.45 — geometrically normal, likely a different
+(missed) has score_rank_pct=0.45 — geometrically normal, likely a different
 failure mode. Run composite_risk_batch on missed keys."
 
 ---
@@ -108,12 +108,13 @@ unusual invoice pattern. Proceed with entity 360 on top 3."
     {"dimension": "total_spend", "delta": 3.91, "population_mu": 45200, "entity_value": 312000},
     {"dimension": "n_invoices", "delta": 2.67, "population_mu": 24, "entity_value": 187}
   ],
-  "repair_set": {
-    "repair_size": 2,
-    "labels": ["total_spend", "n_invoices"],
-    "residual_norm": 0.82,
-    "theta_norm": 1.45
-  }
+  "conformal_p": 0.0021,
+  "bits": 8.9,
+  "axes": {"mahal": {"rank": 0.998, "bits": 6.1}, "current": {"rank": 0.97, "bits": 2.8}},
+  "top_dimensions": [
+    {"dim": "total_spend", "z": 2.9, "bits": 3.7, "pct_of_total": 0.61},
+    {"dim": "n_invoices", "z": 2.4, "bits": 2.0, "pct_of_total": 0.33}
+  ]
 }
 ```
 
@@ -133,9 +134,9 @@ unusual invoice pattern. Proceed with entity 360 on top 3."
 ```
 
 **What to look for:**
-- explain_anomaly: `repair_set` tells you the minimal dimensions to "fix"
-  to make entity normal. `residual_norm < theta_norm` confirms the repair
-  is sufficient.
+- explain_anomaly: `bits` (`−log2 conformal_p`) is the evidence; `axes` says
+  whether it comes from the profile (`mahal`) or from recent motion against
+  peers (`current`), and `top_dimensions[].bits` names the dims inside `mahal`.
 - dive_solid: WHEN did the entity become anomalous? Sudden jump (v2->v3)
   = discrete event. Gradual increase = behavioral drift.
 - Here: entity was normal through v2, jumped to anomalous in v3 (July 2024)
@@ -164,19 +165,19 @@ Investigate Q3 2024 events."
       "pattern_id": "supplier_pattern",
       "is_anomaly": true,
       "delta_norm": 4.82,
-      "delta_rank_pct": 0.98
+      "score_rank_pct": 0.98
     },
     {
       "pattern_id": "invoice_pattern",
       "is_anomaly": true,
       "delta_norm": 3.11,
-      "delta_rank_pct": 0.94
+      "score_rank_pct": 0.94
     },
     {
       "pattern_id": "payment_pattern",
       "is_anomaly": false,
       "delta_norm": 1.23,
-      "delta_rank_pct": 0.71
+      "score_rank_pct": 0.71
     }
   ]
 }
@@ -186,7 +187,7 @@ Investigate Q3 2024 events."
 - `source_count >= 2` = entity is anomalous in multiple independent patterns
   = high confidence finding, investigate thoroughly
 - `source_count == 1` = single-source signal, likely false positive
-- `delta_rank_pct` shows where entity sits in the population distribution
+- `score_rank_pct` shows where entity sits in the population distribution
   even when not anomalous (payment_pattern: rank 71st percentile — elevated
   but not extreme)
 - Here: SUPP-1234 is anomalous in 2 of 3 patterns = strong multi-source

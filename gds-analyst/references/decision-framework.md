@@ -60,13 +60,13 @@ Step 4: For each normal candidate:
         check_anomaly_batch → confirm >50% threshold
 
 Approach B — from population sample (if A finds nothing):
-Step 1: Walk line, sample 30-50 normal entities (delta_rank_pct 30-70)
+Step 1: Walk line, sample 30-50 normal entities (score_rank_pct 30-70)
 Step 2: For each normal entity:
         find_similar_entities(key, pattern, top_n=10)
         check_anomaly_batch → same >50% threshold
 ```
 
-**What you're looking for:** CUST-X is_anomaly=false, delta_rank_pct=45,
+**What you're looking for:** CUST-X is_anomaly=false, score_rank_pct=45,
 but 7 of its 10 nearest geometric neighbors are anomalous. The entity is
 being dragged toward anomalous territory without crossing the threshold yet.
 

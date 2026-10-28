@@ -3,7 +3,7 @@
 > Business data as geometry that AI agents navigate — the investigation workflows.
 
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE)
-![Version](https://img.shields.io/badge/version-0.9.3-%235500FF.svg)
+![Version](https://img.shields.io/badge/version-0.10.0-%235500FF.svg)
 
 Install the skills into your agent, connect [hypertopos-mcp](https://github.com/hypertopos/hypertopos-mcp) to a sphere, and ask in plain language — the matching skill decides which tool to call, in which order, what the result means, and what to check next.
 
@@ -75,22 +75,23 @@ manage_branch(action="promote", name="my_branch")
 manage_branch(action="delete", name="my_branch")
 ```
 
-And this is what an agent following it did on a small synthetic banking sphere, having found account `85` at the top of `find_anomalies` (real tool output, trimmed):
+And this is what an agent following it did on a small synthetic banking sphere, having found account `20` at the top of `find_anomalies` (real tool output, trimmed):
 
 ```text
-recalibrate(pattern_id="account_behavior_pattern", branch="trial", exclude_keys=["85"])
-{"old_theta_norm": 21.6675, "new_theta_norm": 19.0743, "records_recalibrated": 121, "n_excluded": 1, "branch": "trial", …}
+recalibrate(pattern_id="account_behavior_pattern", branch="trial", exclude_keys=["20"])
+{"records_recalibrated": 121, "n_excluded": 1, "branch": "trial", …}
 
 compare_branches(pattern_id="account_behavior_pattern", branch="trial")
-{"from_ref": "main", "to_ref": "trial", "anomalies_from": 7, "anomalies_to": 7,
- "flipped_in": 0, "flipped_out": 0, "jaccard": 1.0,
- "calibration_drift": {"overall_drift_rms": 0.01949088, …}, …}
+{"from_ref": "main", "to_ref": "trial", "anomalies_from": 5, "anomalies_to": 6,
+ "flipped_in": 1, "flipped_out": 0, "jaccard": 0.8333333,
+ "flipped_in_top": [{"primary_key": "119", "is_anomaly_from": false, "is_anomaly_to": true, …}],
+ "calibration_drift": {"overall_drift_rms": 0.01551632, …}, …}
 
 manage_branch(action="promote", name="trial")
 {"promoted": {"name": "trial", "recipes_replayed": 1, …}}
 ```
 
-The skill supplies the verdict: no entity flipped, the fit moved by 0.02 σ RMS — the calibration was not anchored on the suspect, so promote. The same section tells the agent that `promote` refuses when main has moved and aborts when the replayed fit does not match, so the call is safe without manual verification.
+The skill supplies the verdict: the fit moved by 0.02 σ RMS and no flagged account left the alarm budget, so the calibration was not anchored on the suspect; one account (`119`) entered it, so the agent investigated `119` first and promoted once it checked out. The same section tells the agent that `promote` refuses when main has moved and aborts when the replayed fit does not match, so the call is safe without manual verification.
 
 Orientation works the same way. `gds-explorer` opens every exploration with three calls and then tells the agent which signals in the answers decide the next step:
 
@@ -173,7 +174,7 @@ Investigate: gds-analyst (drives the investigation)
 | Temporal recipes (`gds-monitor`, trajectory scans) find no tools | The sphere has no temporal data. Rebuild with a temporal configuration; `open_sphere` reports `capabilities.has_temporal`. |
 | `unknown parameter 'limit' … did you mean 'top_n'?` | The agent used a name from another API. The skills' examples use the declared names; the error names the right one. |
 | `detect_pattern` returns nothing useful | Rephrase with the entity type and a dimension name; the skills prefer `sphere_overview` plus targeted calls when the query is vague. |
-| The agent reports an anomaly that is one dimension's artefact | `dim_quality_warnings` fired `dominant_dim_mass` or `non_normal_dim`. `gds-explorer` says to raise a calibration ticket (`gds-sphere-designer`) instead of investigating. |
+| The agent reports an anomaly that is one dimension's artefact | `dim_quality_warnings` fired `dominant_dim_mass`. `gds-explorer` says to raise a calibration ticket (`gds-sphere-designer`) instead of investigating. |
 | Answers do not change after new data arrived | The session is pinned to a snapshot. `get_session_stats()` → `snapshot.stale`, then `open_sphere(path)`. |
 | A fraud recipe says "no edge table" | The event pattern has fewer than two relations to the same anchor line, or the sphere was built with `--no-edges`. `gds-fraud-investigator` checks this first ("Prerequisites — Edge Table Check"). |
 

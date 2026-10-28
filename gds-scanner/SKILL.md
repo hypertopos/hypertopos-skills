@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Requires hypertopos MCP server. Designed for Claude Code and compatible agents.
 metadata:
   author: Karol Kędzia
-  version: 0.9.0
+  version: 0.10.0
   mcp-server: hypertopos
 ---
 
@@ -42,26 +42,20 @@ the most complete picture; skipping one leaves that category unchecked.
 - [ ] Every chosen scan run, preferring its `detect_*` tool where one exists
 - [ ] Each category without a finding reported as "not detected", never silently skipped
 
-## FDR control, diverse selection, and confidence filtering
+## Alarm budget, diverse selection, and the cell gate
 
-Large-population scans should always set `fdr_alpha` (e.g. `fdr_alpha=0.05`) on `find_anomalies` and `attract_boundary` (the tools with χ² model p-values — `find_hubs` and `find_drifting_entities` rank without a p-value and offer no FDR) because the multiple-testing problem is worse at scale — without FDR control, a 100K-entity scan produces hundreds of false discoveries that contaminate downstream cross-pattern and contamination analysis. Use `select="diverse"` to surface the distinct types of anomaly present in the population rather than ranking purely by severity; this applies submodular facility location to maximize geometric coverage across the result set, which is critical when the scan feeds into segment shift or trajectory shape analysis where variety matters more than extremity.
-
-For populations <= 50K (where bootstrap confidence is computed), add `min_confidence` as a second-pass filter after initial candidate discovery:
+On a calibrated pattern (non-empty `score_dims`), large-population scans start from a calibrated statement: `is_anomaly` means `conformal_p ≤ 1 − anomaly_percentile/100`, so at the 95th percentile a 100K-entity population carries about 5K flags a clean population would also produce. Budget downstream cross-pattern and contamination work for that load: work the list in `anomaly_score` order (the default), or keep only the entities whose `conformal_p` is well below the budget. There is no entity-level FDR to switch on. Use `select="diverse"` to surface the distinct types of anomaly present in the population rather than ranking purely by severity; this applies submodular facility location to maximize geometric coverage across the result set, which is critical when the scan feeds into segment shift or trajectory shape analysis where variety matters more than extremity.
 
 ```
-find_anomalies(pattern_id, top_n=50, fdr_alpha=0.05, select="diverse")
--> initial candidate set with FDR control
+find_anomalies(pattern_id, top_n=50, select="diverse")
+-> candidate set spanning distinct anomaly signatures
+```
 
-find_anomalies(pattern_id, top_n=50, fdr_alpha=0.05, min_confidence=0.7)
+On patterns without the calibrated score (event, GMM, discrete) and populations <= 50K (where bootstrap confidence is computed), `min_confidence` is a second-pass filter:
+
+```
+find_anomalies(event_pattern_id, top_n=50, min_confidence=0.7)
 -> stable-anomaly subset for downstream cross-pattern and contamination analysis
-```
-
-**Storey adaptive FDR (optional, regime-dependent).** On patterns where the population carries a real null mass alongside the anomalous tail, `fdr_method="storey"` (on the χ² p-values FDR always uses) recovers 10–15% additional discoveries at the same alpha. Before using Storey, check `sphere_overview` for the pattern's anomaly_rate and look at `delta_norm` distribution: if the median delta is close to sqrt(df) (with a meaningful tail), Storey helps; if the median is much smaller than sqrt(df) (compressed) or much larger (every entity already looks anomalous), keep the default `fdr_method="bh"` — Storey will not change the result.
-
-```
-find_anomalies(pattern_id, top_n=100, fdr_alpha=0.05,
-               fdr_method="storey")
--> adaptive FDR, more discoveries when the pattern has a real null tail
 ```
 
 For mixed-type patterns (check `dimension_kinds` in sphere_overview — look for a mix of poisson/gaussian/bernoulli), compare the two scores every result already carries:
@@ -73,11 +67,11 @@ find_anomalies(pattern_id, top_n=50)
 
 Bregman divergence scores each dimension according to its statistical kind (KL for counts, KL for binary, squared z-score for continuous). On patterns with heterogeneous dimension types, an entity with a high `bregman_divergence` but a modest `delta_norm` is one L2 under-ranks because it treats all dimensions identically. `explain_anomaly` attributes `delta_norm` (not the divergence) per dimension: `top_dimensions[].pct_of_total` is each dim's share of `delta_norm²`, tagged with its `kind`.
 
-The two calls serve different purposes: the first gives full coverage, the second prunes borderline detections before expensive multi-pattern verification. Use both when the scan feeds into cross-pattern discrepancy or neighbor contamination — unstable anomalies inflate false discrepancy signals.
+Coverage first, pruning second: the diverse call spans the anomaly types, the `conformal_p` / `min_confidence` cut prunes borderline detections before expensive multi-pattern verification — unstable anomalies inflate false discrepancy signals.
 
-**Multi-resolution FDR — spatial × temporal hierarchies.** When the pattern declares `fdr_hierarchy:` (spatial) and/or `fdr_temporal_hierarchy:` (temporal) in `sphere.yaml`, `find_anomalies` accepts `fdr_resolution="<spatial_level>"` and `fdr_temporal_resolution="<temporal_level>"` to gate returned anomalies to cells that cleared per-level BH/Storey FDR. Use `fdr_resolution` to surface "this bank / this region is the hot-spot" (population-level rate spike in a sub-group), `fdr_temporal_resolution` for "this epoch fired" (time window with elevated density that entity-axis FDR cannot see). Combined → intersection: an entity survives only when its cell cleared every named level on BOTH axes. Setting either parameter makes an unset `fdr_method` resolve to `"storey"` on the entity-axis test. Watch for degenerate levels (single-cell levels rejecting nothing) — drop to single-axis mode before raising alpha.
+**Multi-resolution FDR — spatial × temporal hierarchies.** When the pattern declares `fdr_hierarchy:` (spatial) and/or `fdr_temporal_hierarchy:` (temporal) in `sphere.yaml`, `find_anomalies` accepts `fdr_resolution="<spatial_level>"` and `fdr_temporal_resolution="<temporal_level>"` with `fdr_alpha` to gate returned anomalies to cells enriched in `is_anomaly` (per-level BH/Storey FDR over cells, Storey by default). Use `fdr_resolution` to surface "this bank / this region is the hot-spot" (population-level rate spike in a sub-group), `fdr_temporal_resolution` for "this epoch fired" (time window with elevated density no single entity shows). Combined → intersection: an entity survives only when its cell cleared every named level on BOTH axes. Watch for degenerate levels (single-cell levels rejecting nothing) — drop to single-axis mode before raising alpha.
 
-**FDR axis selection — entity vs per-dim.** Default `fdr_axis="entity"` controls FDR over per-entity joint-norm tests (one p-value per entity, df = dimensionality). `fdr_axis="per_dim"` runs independent BH/Storey corrections per dimension on chi²(1) univariate p-values and keeps an entity iff *any* dim's q-value clears alpha — surfaces rare-but-real single-dim signals that joint-norm tests dilute. `fdr_axis="both"` requires survival on both tests (strictest, smallest candidate list). Per-dim mode attaches `q_values_per_dim` (`{dim: q}`), `min_q_per_dim`, and `dominant_q_dim` to every returned polygon — downstream root cause reads which dim drove the survivor straight from the result. Pair with `rank_by="min_q_per_dim"` to re-rank survivors by smallest per-dim q-value ascending (most extreme single-dim signal first).
+**Which dimension drove a flag.** `explain_anomaly` splits the evidence (`bits = −log2 conformal_p`) over the scoring axes and then over the dimensions (`top_dimensions[].bits`), so root cause reads the driving dimension for each survivor straight from the explanation.
 
 **Reliability filter before downstream work.** Every flagged polygon carries `reliability_flags` — two flags fire independently: `single_dim_driven=true` (one dim carries >70 % of `delta_norm²`; likely data-quality artefact rather than multi-dim fraud signal) and `low_confidence_bucket=true` (bootstrap `anomaly_confidence < 0.5`; fragile to resampling). Treat either as a soft hit before feeding into cross-pattern or contamination analysis — unstable anomalies inflate false discrepancy signals.
 
@@ -192,7 +186,7 @@ If a NORMAL neighbor has >50% anomalous neighbors, it is a contamination target.
 **From normal entities:**
 
 ```
-For 5 normal entities (delta_rank_pct 30-70):
+For 5 normal entities (score_rank_pct 30-70):
   find_similar_entities(normal_key, pattern, top_n=10)
   check_anomaly_batch([neighbor_keys], pattern)
 ```

@@ -61,9 +61,10 @@ patterns:
 
 `edge_curvature_frc` is the only purely structural dim — it's `4 − deg(u) − deg(v) + #triangles(u, v)` on the undirected projection of the multigraph (presence not multiplicity; canonical for both directions). Negative values mark sparse-hub topology (lookalike mule signature); near-zero marks tight rings (K-clique sub-structures); positive marks over-clustered local neighbourhoods. Composes through the existing population-relative anomaly stack via aggregated `*_mean` / `*_max` on the anchor pattern.
 
-**Mahalanobis distance** — for correlated dimensions:
+**Scoring axes** — continuous anchor patterns whose dimensions are point properties get the calibrated evidence score: `mahal` (shrunk-covariance Mahalanobis on rank-Gaussian coordinates, so correlated dimensions are not counted twice) plus `current` (motion against the population's velocity field) by default — fitted only when exactly one event pattern on the entity line carries an edge table (from / to keys, timestamp, amount); check `score_axes` in `get_sphere_info` after the build. Add `knn` (distance to nearest peers) when a peer-relative view matters more than build time:
 ```yaml
 patterns:
   account_pattern:
-    use_mahalanobis: true
+    score_axes: [mahal, current, knn]   # must contain mahal
 ```
+`use_mahalanobis` is no longer accepted — the `mahal` axis replaces it, and the stored `delta` stays a per-dimension z-score.

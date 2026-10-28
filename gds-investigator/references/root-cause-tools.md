@@ -29,7 +29,7 @@ root: <entity_key> (severity=extreme)
   children:
     - edge_counterparty: <cp_key_A> (severity=moderate)
         via_dim: <witness_dim_from_root>
-        witness_counterparty_delta_rank_pct: <rank>
+        witness_counterparty_score_rank_pct: <rank>
         children:
           - neighbor_contamination: <cp_key_A> (severity=high)
               anomalous_cp_keys: [<root_key>, <peer_1>, ...]   ← root in list
@@ -62,7 +62,7 @@ Concrete example — what an actual confirmed-clique trace looks like:
         "severity": "moderate",
         "evidence": {
           "via_dim": "amount_out_std",
-          "witness_counterparty_delta_rank_pct": 98.09
+          "witness_counterparty_score_rank_pct": 98.09
         },
         "children": [
           {
@@ -118,7 +118,7 @@ Concrete example — what an actual confirmed-clique trace looks like:
   "severity": "moderate",
   "evidence": {
     "via_dim": "amount_out_std",
-    "witness_counterparty_delta_rank_pct": 98.09,
+    "witness_counterparty_score_rank_pct": 98.09,
     "edge_potential": {
       "score": 12.5,
       "delta_distance": 5.1,
@@ -129,7 +129,7 @@ Concrete example — what an actual confirmed-clique trace looks like:
 }
 ```
 
-Reading order: if both `witness_counterparty_delta_rank_pct` > 95 AND `edge_potential.score` is in the top-percentile of the pattern, you have a confirmed single-tx structurally-anomalous edge — treat as highest priority.
+Reading order: if both `witness_counterparty_score_rank_pct` > 95 AND `edge_potential.score` is in the top-percentile of the pattern, you have a confirmed single-tx structurally-anomalous edge — treat as highest priority.
 
 ### Structural motifs — `score_motif` and `find_high_potential_motifs`
 
@@ -145,7 +145,7 @@ Reading order: if both `witness_counterparty_delta_rank_pct` > 95 AND `edge_pote
 - **`bipartite_burst`** (default window 24h, `min_k` default 3, `min_m` default 3): complete K_{k,m} bipartite subgraph in a tight time window — k distinct sources each transact with every one of m distinct sinks. Greedy single-core enumeration: tries seed-as-source first, falls back to seed-as-sink. Covers coordinated mule-ring and parallel-collusion typologies; complements `fan_out` + `fan_in` by requiring completeness on both sides rather than density at a single anchor.
 
 **When to use.**
-- After `trace_root_cause` — the `edge_counterparty` branch now carries `motif_potential` automatically when the suspect seeds a motif that passes through the counterparty. Read the block alongside `edge_potential` and `witness_counterparty_delta_rank_pct`; a confirmed signal on all three means structural + per-edge + witness-dimension agreement.
+- After `trace_root_cause` — the `edge_counterparty` branch now carries `motif_potential` automatically when the suspect seeds a motif that passes through the counterparty. Read the block alongside `edge_potential` and `witness_counterparty_score_rank_pct`; a confirmed signal on all three means structural + per-edge + witness-dimension agreement.
 - Global screening: `find_high_potential_motifs(pattern_id, motif_type="cycle_3", top_n=20)` surfaces the most suspicious triads in the whole pattern. First call per (pattern, motif_type, window, …, k) is cold and can take a while on large patterns — subsequent calls hit the LRU cache.
 - Entity drill-down: `score_motif(suspect, motif_type="cycle_2", pattern_id=pattern_id)` checks whether the suspect is the seed of a high-score round-trip without committing to a specific counterparty.
 
@@ -222,7 +222,7 @@ find_chains_with_coherent_anomaly(chain_pattern_id, anchor_pattern_id, min_hops=
   axis from find_anomalies on the chain pattern (which scores chain shape).
 anomaly_propagation_in_chain(chain_id, chain_pattern_id, anchor_pattern_id)
   Drill into a single flagged chain — returns hop-by-hop anomaly trace
-  (is_anomaly + delta_norm + top_dim + delta_rank_pct per hop).
+  (is_anomaly + delta_norm + top_dim + score_rank_pct per hop).
 classify_chain_typology(chain_id, ...)
   Five-axis label per chain: shape / peak_position / position_in_chain /
   extension_signals / dominant_top_dim. Triage tag without re-reading hops.

@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Requires hypertopos MCP server. Designed for Claude Code and compatible agents.
 metadata:
   author: Karol Kędzia
-  version: 0.9.0
+  version: 0.10.0
   mcp-server: hypertopos
 ---
 
@@ -89,7 +89,7 @@ Allocate **70% of budget to matched scans**, 30% to exploration and validation.
 
 Every hint requires a finding in the report — even if the finding is "not detected."
 
-**FDR control on every scan that feeds downstream work.** Set `fdr_alpha=0.05` on `find_anomalies` and `attract_boundary` (FDR runs on χ² model p-values; `find_hubs` / `find_drifting_entities` are rank-only and offer no FDR) to bound false discoveries before they propagate into cross-pattern or root-cause analysis. When the pattern declares `fdr_hierarchy:` (spatial) or `fdr_temporal_hierarchy:` (temporal) in `sphere.yaml`, add `fdr_resolution="<spatial_level>"` and/or `fdr_temporal_resolution="<temporal_level>"` to scope BH/Storey FDR to a sub-population — surfaces "this bank / this quarter is suspicious" rather than "these accounts are suspicious". For single-dim driver investigation, use `fdr_axis="per_dim"` with `rank_by="min_q_per_dim"` — re-ranks survivors by smallest per-dim q-value so a rare-but-real single-dim signal that joint-norm tests dilute surfaces first. Full FDR cheatsheets live in `gds-detective`.
+**Know the alarm budget before scans feed downstream work.** On a calibrated pattern (non-empty `score_dims`), `is_anomaly` means `conformal_p ≤ 1 − anomaly_percentile/100`: at the 95th percentile about 5 % of a clean population is flagged, so expect roughly that many false alarms in the list and rank by `conformal_p` ascending, then `anomaly_score` descending (the `find_anomalies` default). There is no entity-level FDR to switch on. When the pattern declares `fdr_hierarchy:` (spatial) or `fdr_temporal_hierarchy:` (temporal) in `sphere.yaml`, add `fdr_alpha=0.05` with `fdr_resolution="<spatial_level>"` and/or `fdr_temporal_resolution="<temporal_level>"` — the cell gate keeps the cells enriched in anomalies, so it surfaces "this bank / this quarter is suspicious" rather than "these accounts are suspicious". For the dimension driving one entity, `explain_anomaly.top_dimensions` splits its evidence into bits per dimension. Full cheatsheets live in `gds-detective`.
 
 ### Root cause the findings
 

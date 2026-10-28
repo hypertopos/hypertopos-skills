@@ -73,6 +73,8 @@ typically lands in `degenerate_signal=true`.
 
 Standard anomaly detection asks "how far is this entity from normal?". The inverse question is "how much does this entity SHAPE what 'normal' means?". A hidden influencer has high impact on coordinate system calibration but LOW anomaly score — invisible to anomaly scans, yet removing it shifts μ/σ enough to flip other entities' classifications.
 
+**Note:** `find_calibration_influencers` applies only to patterns scored by `delta_norm` (no `score_dims`). On calibrated patterns the anomaly verdict comes from a rank-based reference no single entity can mask itself in — use `explain_anomaly` to understand why a specific entity is flagged.
+
 ```
 mcp__hypertopos__find_calibration_influencers(
     pattern_id="<pattern>",
