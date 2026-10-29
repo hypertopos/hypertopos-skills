@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Requires hypertopos CLI (pip install hypertopos). No live MCP session needed for design phases.
 metadata:
   author: Karol Kedzia
-  version: 0.10.0
+  version: 0.10.1
   mcp-server: hypertopos
 ---
 
@@ -420,6 +420,14 @@ unsupported pattern types, `recalibrate` / `reindex`, batched ingestion with
 subgroups have different normal behavior (e.g. monthly vs weekly accounts).
 Effect is marginal when the population is homogeneous.
 
+Add `score_per_group: true` when each group should also be scored against its
+own calibrated reference (anomaly_score, conformal_p and is_anomaly become
+within-group). Each group then carries its own alarm budget. Requires
+`group_by_property`; aim for groups of ~1,000+ members. Groups too small to flag
+a member (39 at the 95th percentile, 199 at the 99th) are pooled; entities from unseen groups fall back to the population reference.
+The geometry column `score_group` names which reference scored each entity.
+`recalibrate` refits every group's reference when the population moves.
+
 ### Composite scoring
 
 `composite_risk` combines p-values across patterns via the Wilson harmonic-mean
@@ -451,6 +459,7 @@ triangulation -- confirm via a different pattern where only one source contribut
 | `dimension_weights` | `kurtosis` | Use `kurtosis` unless all dimensions are equally important |
 | `gmm_n_components` | 3 | Increase if population has distinct sub-groups (e.g. retail vs corporate) |
 | `group_by_property` | null | Set when sub-populations have different normal behavior (e.g. per-country) |
+| `score_per_group` | false | Add with `group_by_property` to score each group against its own reference; each group keeps its own alarm budget |
 | `tracked_properties` | null | Set for data quality tracking (which entities have null properties) |
 | `bootstrap_iterations` | 200 | Set to 0 to skip (fast iteration); raise to 500 for production stable-anomaly confidence |
 

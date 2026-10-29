@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Requires pip install "hypertopos[spark]" (PySpark 3.5 or 4, Python 3.12; on Databricks, Runtime 16+ or serverless environment 3+). Works on classic clusters and Spark Connect. Hand-off to an agent needs hypertopos-mcp.
 metadata:
   author: Karol Kędzia
-  version: 0.10.0
+  version: 0.10.1
 ---
 
 # GDS on Spark
@@ -42,11 +42,12 @@ Rules of thumb:
 
 | Situation | Choice |
 |---|---|
-| Entities of very different scale mixed together (retail and business, small and large merchants) | `group_by` to read each entity's deviation within its kind; flags stay global, so rank inside a group by filtering on the group column |
+| Entities of very different scale mixed together (retail and business, small and large merchants) | `group_by` without `score_per_group`: `delta_norm` and deviation reasons are group-relative, but the flag and score stay global — one population-wide ranking |
+| Groups are distinct kinds of entity with different normal behaviour and each has many members | `group_by` + `score_per_group=True`: each group scored against its own reference; `anomaly_score`, `p_value` and `is_anomaly` are within-group; each group keeps its own alarm budget |
 | One homogeneous population | no `group_by` |
-| Many tiny groups | keep `min_group_size` (default 100): smaller groups are pooled and marked `calibration_scope = "pooled"` |
+| Many tiny groups | keep `min_group_size` (default 100; with `score_per_group=True` the default and minimum is the reference size, 199 at the 99th percentile): smaller groups are pooled and marked `calibration_scope = "pooled"` |
 
-With groups, only `delta_norm` and the reasons' `delta` are relative to the entity's own group; `anomaly_score`, its shares (`pct_of_total`), `p_value`, `score_rank_pct` and `is_anomaly` are global. Compare inside a group by filtering on the group column.
+Default (`score_per_group=False`): `delta_norm` and the reasons' `delta` are group-relative; `anomaly_score`, `p_value`, `score_rank_pct` and `is_anomaly` stay global. With `score_per_group=True`, all four become within-group; `calibration_scope` says which reference scored each entity. Compare inside a group by filtering on the group column.
 
 ## 3. Run it
 
@@ -54,7 +55,7 @@ With groups, only `delta_norm` and the reasons' `delta` are relative to the enti
 from hypertopos.spark import find_anomalies, explain
 
 result = find_anomalies(events, entity="from_account", counterparty="to_account",
-                        amount="amount", time="ts", group_by="segment")
+                        amount="amount", time="ts", group_by="segment", score_per_group=True)
 result.orderBy("anomaly_score", ascending=False).show(20, truncate=False)
 ```
 
@@ -71,7 +72,7 @@ result.orderBy("anomaly_score", ascending=False).show(20, truncate=False)
 | `score_rank_pct` | 0–100 position of the score in the population |
 | `delta_norm` | distance from the (group's) centre in standard deviations; the shape, for reference, not the flag |
 | `top_reasons` | up to three dimensions that drive `anomaly_score` most, with signed `delta` and share of the score in percent (the split `explain_anomaly` gives on a sphere) |
-| `calibration_scope` | with `group_by`: `group`, `pooled` or `global` |
+| `calibration_scope` | with `group_by`: `group`, `pooled` or `global` (with `score_per_group=True`: which reference scored the entity) |
 
 Spark scores on the Mahalanobis axis only (no event motion, `current`): a sphere built from the same events with an event pattern can give the same entities different scores and p-values. Do not compare the two numbers as if they were one score.
 

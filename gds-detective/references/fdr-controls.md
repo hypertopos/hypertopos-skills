@@ -4,7 +4,7 @@ How much to trust a flag, and where flags concentrate. Two controls, for two dif
 
 ## The alarm budget (every calibrated pattern)
 
-A calibrated pattern (non-empty `score_dims` in `get_sphere_info`) flags an entity when its `conformal_p` is at most `alpha = 1 − anomaly_percentile/100`. `conformal_p` is the share of the stored calibration reference that scores at least as high as the entity, so the flag carries a calibrated statement: **at the 95th percentile, 5 % of the population is flagged, and 5 % of a population like the reference would be.** That is the false-alarm budget of the whole list — read it straight off `is_anomaly`; there is nothing to switch on.
+A calibrated pattern (non-empty `score_dims` in `get_sphere_info`) flags an entity when its `conformal_p` is at most `alpha = 1 − anomaly_percentile/100`. `conformal_p` is the conformal p-value against the fitted population: the fraction of the calibration reference scoring at least as high as the entity, so the flag carries a calibrated statement: **at the 95th percentile, at most 5 % of the population is flagged.** That is the false-alarm budget of the whole list — read it straight off `is_anomaly`; there is nothing to switch on.
 
 What follows for an investigation:
 
@@ -12,7 +12,7 @@ What follows for an investigation:
 - **Rank inside the list by evidence.** `find_anomalies` orders by `conformal_p` ascending, then `anomaly_score` descending; `explain_anomaly` gives `bits = −log2 conformal_p` and splits them over axes and dimensions. A smaller `conformal_p` is stronger evidence, but it is a rank, not a per-entity error rate.
 - **There is no entity-level FDR.** The conformal p-values of the fitted population are its own ranks, so a BH / Storey cut over them cannot reject anything beyond the budget. `find_anomalies` has no `fdr_axis` or entity q-values; `fdr_alpha` alone raises an error.
 - **A tighter list** = a higher `anomaly_percentile` in the pattern YAML (rebuild), or keep the entities whose `conformal_p` is below a smaller alpha — `assess_anomaly_certainty` sweeps `perturbation_alphas` for one entity.
-- **Old references drift.** `check_alerts` raises `calibration_age` when a pattern's calibration is older than 60 days; `recalibrate(pattern_id)` refits it before you lean on the budget.
+- **Old references drift.** `check_alerts` raises `calibration_age` when a pattern's calibration is older than 60 days, and `alarm_rate_drift` when rows written since the calibration already exceed the budget; `recalibrate(pattern_id)` refits it before you lean on the budget.
 
 Event, GMM and discrete patterns keep `delta_norm` against θ as the decision; their `conformal_p` is on `delta_norm`.
 

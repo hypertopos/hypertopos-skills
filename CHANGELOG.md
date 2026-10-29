@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.10.1] — 2026-10-29
+
+### Added
+
+- `gds-monitor`: documents the `alarm_rate_drift` alert — what it means, how to respond (recalibrate on a branch, compare with `compare_calibrations`, promote) and its `details`.
+
+### Changed
+
+- `gds-spark`: updated `group_by` guidance to explain both scoring modes — default (global score, group-relative deviations) and `score_per_group=True` (within-group score, each group keeps its own alarm budget); explained what `calibration_scope` means in each mode; example call updated to include `score_per_group=True`.
+- `gds-sphere-designer`: added `score_per_group` to the per-cohort calibration section and the parameter table.
+
+### Fixed
+
+- `gds-sphere-designer` states that `recalibrate` refuses `gmm_n_components` patterns, and gives the real size below which per-group score groups are pooled.
+
 ## [0.10.0] — 2026-10-28
 
 ### Changed

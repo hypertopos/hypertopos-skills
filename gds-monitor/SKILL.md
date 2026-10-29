@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Requires hypertopos MCP server. Designed for Claude Code and compatible agents.
 metadata:
   author: Karol Kędzia
-  version: 0.10.0
+  version: 0.10.1
   mcp-server: hypertopos
 ---
 
@@ -70,6 +70,7 @@ sphere state; `vector_index_health.is_stale` below is about ANN index coverage.)
 | `regime_changepoint` | `find_regime_changes(pattern_id)` then `compare_time_windows()` for flagged period |
 | `calibration_drift` | Note for next rebuild. Current results still usable. |
 | `calibration_age` | The pattern's calibration reference is older than 60 days; its `conformal_p` (and so the alarm budget behind `is_anomaly`) drifts as the population moves. `recalibrate(pattern_id)` — on a branch first if the change needs review — then `compare_calibrations(pattern_id)` to see what moved. |
+| `alarm_rate_drift` | Among rows written since the last calibration, the flagged count exceeds the alarm budget (one-sided beta-binomial p < 0.01, which allows for the calibration's own noise): the population has moved from its reference. Recalibrate — ideally on a branch first, compare alarms and rankings with `compare_calibrations(pattern_id)`, then promote. `check_alerts` `details` carries `n_new`, `flagged`, `expected`, `p_value`. Not raised on per-group calibrated patterns or on spheres built before new rows were calibrated out of fold (rebuild those). |
 | `stale_vector_index` | Incrementally-appended geometry rows sit outside the ANN (IVF) index, so trajectory / similarity tools (`detect_trajectory_anomaly`, `find_similar_entities`, `find_drifting_similar`) silently miss them. MEDIUM severity. Drill down with the `vector_index_health` block (see below) to read the unindexed fraction, then trigger a reindex on the builder side. |
 
 ### `stale_vector_index` drilldown — reading `vector_index_health`

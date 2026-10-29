@@ -63,6 +63,8 @@ Python API or the `hypertopos sphere ingest` CLI verb.
 > (`group_by_property`), per cluster (`gmm_n_components`), or carrying an FDR
 > hierarchy — those need per-group / per-cluster recalibration the incremental
 > path cannot reproduce. Rebuild those with `hypertopos build` instead.
+> `recalibrate` handles `group_by_property` patterns per group but refuses
+> `gmm_n_components` patterns the same way.
 > Separately, a single pattern cannot declare `tracked_properties` together
 > with `edge_dimensions` / `edge_dim_aggregations` (the build refuses the
 > combination); split them across two patterns.
