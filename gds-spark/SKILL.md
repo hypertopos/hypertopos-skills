@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Requires pip install "hypertopos[spark]" (PySpark 3.5 or 4, Python 3.12; on Databricks, Runtime 16+ or serverless environment 3+). Works on classic clusters and Spark Connect. Hand-off to an agent needs hypertopos-mcp.
 metadata:
   author: Karol Kędzia
-  version: 0.10.1
+  version: 0.10.2
 ---
 
 # GDS on Spark
@@ -74,7 +74,7 @@ result.orderBy("anomaly_score", ascending=False).show(20, truncate=False)
 | `top_reasons` | up to three dimensions that drive `anomaly_score` most, with signed `delta` and share of the score in percent (the split `explain_anomaly` gives on a sphere) |
 | `calibration_scope` | with `group_by`: `group`, `pooled` or `global` (with `score_per_group=True`: which reference scored the entity) |
 
-Spark scores on the Mahalanobis axis only (no event motion, `current`): a sphere built from the same events with an event pattern can give the same entities different scores and p-values. Do not compare the two numbers as if they were one score.
+The score has the Mahalanobis axis (`mahal`: how rare the combination of dimensions is) and, by default when `time` is given and `score_per_group` is off, `current`: how unusually the entity's activity changed between the two calendar halves of the events against entities in the same state; with `current` the score equals that of a sphere built from the same events with an event pattern. Without `time` or with `score_per_group=True` the default is `mahal` alone, and `score_axes=("mahal",)` leaves `current` out (about a fifth less fit time); leave it out when the behaviour you look for does not change between the two halves of the window, since `current` then only adds noise to the ranking. `current` needs events on both sides of the window's middle day, so on a one-day window (a daily calibration) it changes no p-value, rank or flag; pass `score_axes=("mahal",)` there to save its cost. With `score_per_group=True`, `score_axes=("mahal", "current")` adds it, each group's reference fitting its own velocity field. Without `current`, a sphere with an event pattern scores motion that Spark does not, so do not compare those numbers as one score. `score` scores new data on `mahal` alone even against a calibration with `current`. `top_reasons` split only the `mahal` part over the dimensions: an entity can rank high on `current` with modest reasons, so say which axis drives it (compare `delta_norm` and the reasons with the score).
 
 Triage before reporting anything:
 1. **Read `top_reasons` for every entity you report.** If one dimension holds most of the score (`pct_of_total` > 80), the finding is that one dimension being extreme. Check that the dimension is meaningful and not a data artefact, such as a unit change, a duplicated feed or a test account.
@@ -101,7 +101,18 @@ today = score(spark.table("main.payments.today"), like=result)
 today.where("is_anomaly").write.mode("append").saveAsTable("main.payments.daily_alerts")
 ```
 
-Use this for monitoring: today against last month's population, so scores stay comparable from day to day. A scheduled job runs in a new process: calibrate with `sphere_root` on persistent storage (a Unity Catalog Volume on Databricks), keep `str(sphere_of(result).path)`, and score later runs with `score(df, like=sphere_of(path))`. On serverless, pass `sphere_root=` (a custom Spark conf cannot be set there). To explain a scored alert, pass the events it was scored on: `explain(today, events=new_events)`. A recalibration on every batch would move the baseline with the data. Recalibrate deliberately, when the population has really changed, by running `find_anomalies` on the new reference window.
+Use this for monitoring with **windows of the same length**: today against yesterday (or the same weekday a week earlier), a fixed number of days against the same number. Counts, sums, distinct counterparties and active days grow with the window, so a day scored against a month flags almost everyone. A scheduled job runs in a new process: calibrate with `sphere_root` on persistent storage (a Unity Catalog Volume on Databricks), keep `str(sphere_of(result).path)`, and score later runs with `score(df, like=sphere_of(path))`. On serverless, pass `sphere_root=` (a custom Spark conf cannot be set there). To explain a scored alert, pass the events it was scored on: `explain(today, events=new_events)`. A recalibration on every batch would move the baseline with the data. Recalibrate deliberately, when the population has really changed, by running `find_anomalies` on the new reference window.
+
+Check that the baseline still holds before trusting a batch's flags:
+
+```python
+from hypertopos.spark import calibration_status, score
+
+today = score(new_events, like=result, dimensions=True).persist()
+status = calibration_status(today, like=result)
+```
+
+`status["status"]` is `ok`, `drift` (report `drifted_dimensions`, the dimensions that moved, and recalibrate on a recent window), `window_mismatch` (the scored window, `window_days`, is not 95–100 % of the calibration's `calibration_window_days`: recalibrate on a window of the same length; the `reason` names both), `too_few_rows` (under 100 rows) or `unsupported` (calibrations with `group_by`). Use fixed-length windows (e.g. 28 or 30 days), never calendar months: 28 against 31 days already fails. A calibration saved before the window check reports `calibration_window_days` `None` and skips it. Pass the whole scored batch, never `today.where("is_anomaly")` or another subset: a filtered frame reads as drift. It runs one Spark action over `today`, so persist or write the scored frame first or the scoring runs twice. A `find_anomalies` result is refused: it needs `score(..., dimensions=True)`.
 
 ## 7. Hand the result to an agent
 
@@ -121,5 +132,6 @@ With the MCP server on that sphere, the investigation continues with the other s
 - Reporting `is_anomaly = true` as "fraud" or "suspicious" without reading `top_reasons` and the event counts.
 - Mixing entities of different kinds and reporting the flagged ones without checking the group-relative reasons.
 - Recalibrating on each new batch for monitoring, instead of `score(..., like=...)`.
+- Scoring a batch against a calibration of a different window length (a day against a month): window-length dimensions push nearly every entity over the budget.
 - Passing labels as dimensions, or tuning `percentile` until a known case is flagged.
 - Collecting the event table to the driver (`toPandas()` on raw events). Only the per-entity result is small.

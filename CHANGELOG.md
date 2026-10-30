@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.10.2] — 2026-10-30
+
+### Changed
+
+- `gds-spark` says when to leave the `current` axis out: when the behaviour you look for does not change between the two halves of the window, and on a one-day window, where `current` has no two halves to compare.
+- `gds-spark`: check a frozen calibration with `calibration_status` before trusting a scored batch: score with `dimensions=True`, persist the result, and recalibrate when the status is `drift`.
+- `gds-spark` explains the `current` axis of the Spark score (the default when `time` is given; `score_axes=("mahal",)` leaves it out): when the score equals a sphere's, that `top_reasons` split only the Mahalanobis part, and that `score` scores new data on `mahal` alone.
+- `gds-spark` explains that `score_axes=("mahal", "current")` works with `score_per_group=True`, each group fitting its own velocity field, while the default there stays `mahal` alone.
+- `gds-spark`: the calibration check lists the `window_mismatch` status (scored window outside 95–100 % of the calibration window's length: recalibrate on a window of the same length) and advises fixed-length windows instead of calendar months.
+
 ## [0.10.1] — 2026-10-29
 
 ### Added

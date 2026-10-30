@@ -3,7 +3,7 @@
 > Business data as geometry that AI agents navigate — the investigation workflows.
 
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE)
-![Version](https://img.shields.io/badge/version-0.10.1-%235500FF.svg)
+![Version](https://img.shields.io/badge/version-0.10.2-%235500FF.svg)
 
 Install the skills into your agent, connect [hypertopos-mcp](https://github.com/hypertopos/hypertopos-mcp) to a sphere, and ask in plain language — the matching skill decides which tool to call, in which order, what the result means, and what to check next.
 
