@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.10.3] — 2026-10-31
+
+### Changed
+
+- `gds-spark`: the calibration check covers calibrations with `group_by`. It reads `groups` and `drifted_groups`, and it explains why a group can be `untested` or `too_few_rows` without being drift.
+- `gds-spark`: in a scheduled job, the agent appends each calibration check to a Delta table and recalibrates when the batch row is not `ok`.
+- `gds-spark`: the calibration check names the axes behind the scored batch (`score_axes`) and behind the calibration's own result (`calibration_axes`).
+
 ## [0.10.2] — 2026-10-30
 
 ### Changed
