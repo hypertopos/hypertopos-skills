@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Requires hypertopos MCP server. Designed for Claude Code and compatible agents.
 metadata:
   author: Karol Kędzia
-  version: 0.10.0
+  version: 0.11.0
   mcp-server: hypertopos
 ---
 
@@ -20,6 +20,8 @@ Each scan below targets a distinct anomaly category. Standard detection
 finds entities that are anomalous — these scans find entities that are
 anomalous in ways standard detection cannot see. Covering all four gives
 the most complete picture; skipping one leaves that category unchecked.
+
+**Profiles:** `full` — the `detect_*` scans and `find_drifting_entities` are outside the default `investigator` profile; start the server with `--profile full` or set `HYPERTOPOS_MCP_PROFILE=full`.
 
 > **Note:** Prefer the `detect_*` tools over the manual recipes below — they encapsulate these
 > workflows in a single call. Key algorithm differences from manual recipes:

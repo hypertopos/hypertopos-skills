@@ -1,4 +1,4 @@
-# Advanced Operational Workflows
+# Advanced Operational Workflows (profile: full)
 
 > Loaded on demand for adversarial-AML, group-coordination, lead-lag, and edge-feature workflows that go beyond the per-suspect Phase 2 playbook in `SKILL.md`. These compose the standard primitives into specific operational scenarios.
 

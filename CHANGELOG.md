@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.11.0] — 2026-11-10
+
+### Added
+
+- `gds-spark`: before reading `explain` rows as the whole reason, check `axis_evidence`: an entity whose evidence sits mostly on `current` stands out because its activity changed, not because its values are extreme.
+- `gds-spark`: triage starts with `calibration_card(result)`: a group that cannot reach the flag threshold is reported as such, not as "no anomalies", and a flag whose top reason is a tied dimension is read as resting on one rare value.
+- `gds-monitor`: documents the `population_drift` alert (what it means, how to respond, its `details`); `gds-detective` FDR controls mention it next to `alarm_rate_drift`.
+
+### Changed
+
+- `gds-sphere-designer`: `dimension_weights` defaults to uniform; `kurtosis` amplifies heavy-tailed dimensions and can rank real anomalies worse on a `delta_norm`-scored event pattern, so compare it with uniform weights before keeping it (the parameter table no longer lists `kurtosis` as the default, and the examples no longer say it down-weights low-variance columns).
+- Skills name the tool profile each recipe needs; typology recipes call the motif tools directly, with a typology-to-motif table; the step that unlocked tools with `sphere_overview` is gone.
+
+### Fixed
+
+- `gds-monitor`: `compare_calibrations` takes `v_from` / `v_to` for two non-adjacent epochs (the skill named another tool's parameters); `gds-sphere-designer` examples no longer set `dimension_weights: kurtosis`, matching the uniform default.
+- Skills match the server's current behavior: `fan_out` / `fan_in` count the densest window of `time_window_hours` in the seed's history; the `split_recombine` default window is 168 h in `gds-investigator` as everywhere else; the `assess_anomaly_certainty` verdicts read against `perturbation_alphas` ("high" needs every alpha stable, "moderate" also covers an entity stable at every alpha but held back by a flag, "low" is a one-alpha hit or a normal entity near the data boundary); `gds-fraud-investigator` marks every remaining step that needs the `full` profile; `gds-spark` says which profile `mcp_config()` starts and how to choose `full` or `inspector`.
+- `gds-sphere-designer` troubleshooting: a calibrated pattern needs about `200/(100 − anomaly_percentile)` entities before any of them can be flagged (a fitted entity counts itself in the reference, so its smallest `conformal_p` is `2/(n+1)`); the table said half that.
+
 ## [0.10.3] — 2026-10-31
 
 ### Changed

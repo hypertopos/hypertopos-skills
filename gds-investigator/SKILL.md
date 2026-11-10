@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Requires hypertopos MCP server. Designed for Claude Code and compatible agents.
 metadata:
   author: Karol Kędzia
-  version: 0.10.0
+  version: 0.11.0
   mcp-server: hypertopos
 ---
 
@@ -35,6 +35,8 @@ Your report should include a recall/precision table when ground truth exists.
 Without it, the investigation is incomplete.
 
 ### Prerequisites check
+
+**Profiles:** `full` — screening, explanation and the counterparty, path and chain steps also run on the default `investigator` profile, but the deeper steps (ground truth, Entity 360, root cause, false-positive assessment, drift and detector cross-checks) call tools outside it; start the server with `--profile full` or set `HYPERTOPOS_MCP_PROFILE=full`.
 
 Before network-dependent investigation steps (counterparties, paths, chains),
 verify the pattern has edge data:
@@ -202,12 +204,15 @@ assess_anomaly_certainty(primary_key, pattern_id)
 `certainty_verdict` is certainty about the CLASSIFICATION, not about anomaly
 status — a confidently-normal entity scores `"high"` too. Gate routing:
 
-- **`high`** — stable across the swept FDR alphas, not single-dim-driven, not
+- **`high`** — stable at every alpha in `perturbation_alphas` (default
+  `[0.005, 0.01, 0.05]`), not single-dim-driven, not
   near the data boundary, calibration fresh. Open the case and run the full
   root-cause chain.
-- **`moderate`** — partial stability; investigate but keep the FP possibility
+- **`moderate`** — stable at some alphas, or at every alpha but held back by a
+  flag (single-dim-driven, near the boundary, stale calibration); investigate but keep the FP possibility
   open. Corroborate with one more detector before classifying CONFIRMED.
-- **`low`** — fragile (one-alpha hit or boundary-adjacent). Treat as a soft hit;
+- **`low`** — fragile (flagged at only one of several alphas; a normal entity
+  near the data boundary is `low` too). Treat as a soft hit;
   do not open a formal case on this alone.
 - **`contested`** — the calibrated `conformal_p` disagrees with the stored
   anomaly flag, or the entity is both single-dim-driven and near-boundary.

@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Requires pip install "hypertopos[spark]" (PySpark 3.5 or 4, Python 3.12; on Databricks, Runtime 16+ or serverless environment 3+). Works on classic clusters and Spark Connect. Hand-off to an agent needs hypertopos-mcp.
 metadata:
   author: Karol Kędzia
-  version: 0.10.3
+  version: 0.11.0
 ---
 
 # GDS on Spark
@@ -17,6 +17,8 @@ and which dimensions move it. One call does it; the work for the agent is in
 choosing the roles, reading the result honestly and deciding what to do next.
 
 Full reference: the Spark page of the hypertopos docs (`docs/spark.md`).
+
+**Profiles:** the Spark steps need no MCP server. The hand-off (section 7) runs on the default `investigator` profile; the deeper steps of `gds-investigator` and `gds-explorer` need `full`: set `HYPERTOPOS_MCP_PROFILE=full` in the server's `env`.
 
 ---
 
@@ -77,6 +79,7 @@ result.orderBy("anomaly_score", ascending=False).show(20, truncate=False)
 The score has the Mahalanobis axis (`mahal`: how rare the combination of dimensions is) and, by default when `time` is given and `score_per_group` is off, `current`: how unusually the entity's activity changed between the two calendar halves of the events against entities in the same state; with `current` the score equals that of a sphere built from the same events with an event pattern. Without `time` or with `score_per_group=True` the default is `mahal` alone, and `score_axes=("mahal",)` leaves `current` out (about a fifth less fit time); leave it out when the behaviour you look for does not change between the two halves of the window, since `current` then only adds noise to the ranking. `current` needs events on both sides of the window's middle day, so on a one-day window (a daily calibration) it changes no p-value, rank or flag; pass `score_axes=("mahal",)` there to save its cost. With `score_per_group=True`, `score_axes=("mahal", "current")` adds it, each group's reference fitting its own velocity field. Without `current`, a sphere with an event pattern scores motion that Spark does not, so do not compare those numbers as one score. `score` scores new data on `mahal` alone even against a calibration with `current`. `top_reasons` split only the `mahal` part over the dimensions: an entity can rank high on `current` with modest reasons, so say which axis drives it (compare `delta_norm` and the reasons with the score).
 
 Triage before reporting anything:
+0. **Read `calibration_card(result)` once.** A group whose `can_flag` is false can never be flagged, however unusual its members are (its reference is smaller than `2 / alpha - 1`): say so instead of reporting "no anomalies" for it. A dimension in `tied_dimensions` has one value for at least 95 % of the entities, so any other value is an extreme deviation on its own; a flag whose top reason is such a dimension rests on one rare value.
 1. **Read `top_reasons` for every entity you report.** If one dimension holds most of the score (`pct_of_total` > 80), the finding is that one dimension being extreme. Check that the dimension is meaningful and not a data artefact, such as a unit change, a duplicated feed or a test account.
 2. **Check the event counts.** Shares, spreads and ratios on few events are already pulled toward the mean, but an entity with very few events is still a weak finding. `explain` shows the adjusted value; quote the counts (`n_out`, `n_in` columns of `sphere_of(result).geometry()`, with the default dimensions) when it matters.
 3. **Treat `pooled` and `global` scopes with care.** A pooled entity was compared with a mix of small groups, and a `global` one (from `score`) belonged to a group never seen at calibration, or, with `score_per_group`, to a pool too small for its own reference. Entities seen only as a counterparty are in group `"(none)"`: with no outgoing events they are often flagged, and with `score_per_group` usually outside every group's budget; say so, and offer to filter them out.
@@ -91,6 +94,8 @@ explain(result, entities=["ACC-1029"]).show(truncate=False)  # named ones, every
 ```
 
 Each row gives `value`, the population `mu` and `sigma` (the group's with `group_by`), `delta`, `pct_of_total` and `direction`. Write the explanation in the data's terms. For example: "sends to 14 distinct counterparties against a population mean of 3 (+5.2σ), 46 % of its anomaly score". `explain` needs the result DataFrame itself; selecting away `entity` drops the link to the calibration.
+
+`pct_of_total` divides only the `mahal` part of the score. When the result has the `current` axis, check `axis_evidence(result, entities=[...])` first: `bits_current` close to `bits` means the entity stands out because its activity changed between the two halves of the period, not because its values are extreme. Say so instead of reading the dimension rows as the whole reason. `bits_current` is null without `current` (no `time` role, or `score_per_group` without `score_axes=("mahal", "current")`).
 
 ## 6. Score new data without recalibrating
 
@@ -125,7 +130,7 @@ sphere.lance_path()        # a navigable sphere with the same distances and flag
 sphere.mcp_config()        # MCP client configuration for that sphere
 ```
 
-With the MCP server on that sphere, the investigation continues with the other skills: `gds-investigator` for an entity deep-dive and false-positive checks, and `gds-explorer` for clusters and population structure. In the sphere, dimensions are labelled `t:<dimension>`, and with `group_by` the pattern is grouped by `calibration_group`.
+With the MCP server on that sphere, the investigation continues with the other skills: `gds-investigator` for an entity deep-dive and false-positive checks, and `gds-explorer` for clusters and population structure. `mcp_config()` starts the default `investigator` profile (screening, explanation, money flow); both skills need `full` for their deeper steps, so add `"HYPERTOPOS_MCP_PROFILE": "full"` to its `env` (or `"inspector"` to walk records, polygons and lines). In the sphere, dimensions are labelled `t:<dimension>`, and with `group_by` the pattern is grouped by `calibration_group`.
 
 ## Anti-patterns
 
@@ -135,3 +140,4 @@ With the MCP server on that sphere, the investigation continues with the other s
 - Scoring a batch against a calibration of a different window length (a day against a month): window-length dimensions push nearly every entity over the budget.
 - Passing labels as dimensions, or tuning `percentile` until a known case is flagged.
 - Collecting the event table to the driver (`toPandas()` on raw events). Only the per-entity result is small.
+- Treating `max_entities` as a memory guarantee. It counts rows; the real limit is the driver's memory (about 2.5 GB per million entities at the peak, with `mahal` alone or with `current`; size the driver at about 3 GB per million). On Spark Connect, `score` also sends the calibration with its tasks (about 16 MB per million fitted entities) and a message above 128 MB is refused, so `score` there works up to about 8 million fitted entities. Where the driver's memory cannot be set, as on Databricks serverless, it can also vary between runs. Compare the estimate with the driver before a large run; if it is close, lower `max_entities` or use a driver with more memory.

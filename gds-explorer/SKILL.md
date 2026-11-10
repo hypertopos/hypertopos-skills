@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Requires hypertopos MCP server. Designed for Claude Code and compatible agents.
 metadata:
   author: Karol Kędzia
-  version: 0.10.0
+  version: 0.11.0
   mcp-server: hypertopos
 ---
 
@@ -19,6 +19,8 @@ The goal is efficient orientation: 3 calls to understand the landscape,
 then targeted profiling to find the signal, then hand off to the right
 specialist skill. Depth beats breadth — 20 calls on one promising pattern
 outperform 5 calls across 4 patterns.
+
+**Profiles:** `full` — `find_clusters`, `attract_boundary` and `aggregate` are outside the default `investigator` profile (`get_sphere_info`, `aggregate` and `search_entities` are also in `inspector`); start the server with `--profile full` or set `HYPERTOPOS_MCP_PROFILE=full`.
 
 For concrete tool output examples, see [references/examples.md](references/examples.md).
 

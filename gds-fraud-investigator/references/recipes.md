@@ -129,7 +129,7 @@ For the recipe summary table and the input/capability matrix see `SKILL.md`.
 
 ---
 
-## R9 — Chain-Coherent Cascade (Composition-based Layering)
+## R9 — Chain-Coherent Cascade (Composition-based Layering) (profile: full)
 
 **Pattern:** A stored chain (anchor pattern built from `chain_lines:` BFS extraction OR ingested from an external system per the [external-chains convention](https://github.com/hypertopos/hypertopos-py/blob/main/docs/external-chains-as-anchor-line.md)) hops through ≥ N consecutive entity-anchor positions that are individually anomalous in the entity-anchor pattern AND share the same dominant delta dimension. The chain-level shape (hop count, time span, amount decay) may look unremarkable, but the *composition* of the path — every consecutive entity flagged for the same structural reason — is the signal.
 
@@ -201,7 +201,7 @@ When the smart-mode router doesn't have an LLM available it falls back to keywor
 
 ---
 
-## R11 — Mule Network Discovery
+## R11 — Mule Network Discovery (profile: full)
 
 **Pattern:** A *group* of low-volume accounts forming a dense subgraph with coordinated reciprocal flows. Distinguished from R5 (single-mule profiling) by group cohesion: the network is detected as a cluster, not as individual flagged entities.
 

@@ -102,7 +102,7 @@ Concrete example — what an actual confirmed-clique trace looks like:
 
 ### Edge-level anomaly — `edge_potential`
 
-`edge_potential` and `attract_edge_potential` score the relationship itself, not the endpoints. Score formula: distance between endpoint delta vectors × rarity prior (1/pair_tx_count, capped). High score means two geometrically divergent entities are connected by a rare pair — the classic layering signature.
+`edge_potential` and `find_high_potential_edges` (library: `attract_edge_potential`) score the relationship itself, not the endpoints. Score formula: distance between endpoint delta vectors × rarity prior (1/pair_tx_count, capped). High score means two geometrically divergent entities are connected by a rare pair — the classic layering signature.
 
 **When to use.**
 - After `trace_root_cause` surfaces an `edge_counterparty` branch — check the `edge_potential` field already attached in evidence. Score above sphere-specific threshold (typically > p95 of population) reinforces the counterparty signal.
@@ -137,11 +137,11 @@ Reading order: if both `witness_counterparty_score_rank_pct` > 95 AND `edge_pote
 
 - **`cycle_2`** (default window 24h): bidirectional A↔B round-trip. Covers Flash-Burst Round-Trip and Bidirectional Burst typologies.
 - **`cycle_3`** (default window 72h): directed triad A→B→C→A with strict temporal ordering. Covers Round-Tripping 3-Party, Long-Cycle, and Multi-Round-Tripping typologies.
-- **`fan_out`** (default window 168h): hub → k distinct targets (min k=3). Covers Offshore Hub and Concentrator (source side) typologies.
-- **`fan_in`** (default window 168h): k distinct sources → sink (min k=3). Mirror of `fan_out`. Covers Parallel Layering (destination side) and Concentrator / Sink typologies.
+- **`fan_out`** (default window 168h): hub → k distinct targets (min k=3) within the window; the densest window anywhere in the seed's history counts, so a burst followed by later ordinary transfers is still found. Covers Offshore Hub and Concentrator (source side) typologies.
+- **`fan_in`** (default window 168h): k distinct sources → sink (min k=3). Mirror of `fan_out`, same densest-window rule. Covers Parallel Layering (destination side) and Concentrator / Sink typologies.
 - **`chain_k`** (default window 168h, open directed chain of parametric length 3 ≤ k ≤ 8): A→B→…→Z with no cycle closure, no node revisit, strict monotone timestamps, total span ≤ window. Covers Multi-Stage Layering and Multi-Jurisdiction Latency Chain typologies. Tune `k` to the layering depth under investigation.
 - **`structuring`** (default window 1h, amount-gated): open A→B→C→D with hop1 amount ≥ `amt1_min`, hops 2 and 3 ≤ `amt2_max`. Classic deposit-split-and-wire pattern for reporting-threshold evasion.
-- **`split_recombine`** (default window 24h, `min_k` default 3, `direction="forward"|"backward"`): diamond scatter-gather S → {M₁,…,Mₖ} → D with stacked-bipartite temporal order (all split-hops precede all recombine-hops within the window). Forward mode anchors the seed as the source; backward mode anchors the seed as the sink. Covers scatter-gather smurfing, parallel layering, and concentrator/sink (backward mode) typologies — amount-free counterpart to `structuring`.
+- **`split_recombine`** (default window 168h, `min_k` default 3, `direction="forward"|"backward"`): diamond scatter-gather S → {M₁,…,Mₖ} → D with stacked-bipartite temporal order (all split-hops precede all recombine-hops within the window). Forward mode anchors the seed as the source; backward mode anchors the seed as the sink. Covers scatter-gather smurfing, parallel layering, and concentrator/sink (backward mode) typologies — amount-free counterpart to `structuring`.
 - **`bipartite_burst`** (default window 24h, `min_k` default 3, `min_m` default 3): complete K_{k,m} bipartite subgraph in a tight time window — k distinct sources each transact with every one of m distinct sinks. Greedy single-core enumeration: tries seed-as-source first, falls back to seed-as-sink. Covers coordinated mule-ring and parallel-collusion typologies; complements `fan_out` + `fan_in` by requiring completeness on both sides rather than density at a single anchor.
 
 **When to use.**

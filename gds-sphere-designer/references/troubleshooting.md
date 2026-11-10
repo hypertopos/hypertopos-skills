@@ -26,7 +26,7 @@ Symptom → fix tables for sphere builds, calibration, and design.
 
 | Signal | Fix |
 |--------|-----|
-| anomaly_rate = 0% on a calibrated pattern (non-empty `score_dims`) | The smallest possible `conformal_p` is `1/(n+1)`; with fewer than about `100/(100 − anomaly_percentile)` entities nothing can reach the budget. Lower `anomaly_percentile` or merge the line into a larger population |
+| anomaly_rate = 0% on a calibrated pattern (non-empty `score_dims`) | The smallest `conformal_p` a fitted entity can get is `2/(n+1)` (it counts itself in the reference); with fewer than about `200/(100 − anomaly_percentile)` entities nothing can reach the budget. Lower `anomaly_percentile` or merge the line into a larger population |
 | anomaly_rate = 0% | Lower `anomaly_percentile` to 90 |
 | anomaly_rate > 20% | Raise `anomaly_percentile` to 99 |
 | calibration_health = poor | Add `group_by_property` or adjust `gmm_n_components` |

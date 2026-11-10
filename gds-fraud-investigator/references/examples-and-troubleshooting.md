@@ -42,7 +42,7 @@ Result: "Likely false positive. Single-source only, 18 normal geometric twins, a
 ## Troubleshooting
 
 ### `passive_scan` not available
-Cause: `passive_scan` is listed only after `sphere_overview()` has run in the session, and only when an entity line is covered by two or more patterns. Call `sphere_overview()` first; if it is still missing, the sphere has a single pattern per line.
+Cause: one of two. The server's tool profile does not include it (the refusal says "not in this server's tool profile" — `passive_scan` is in `investigator`, the default, and `full`, not in `minimal` or `inspector`; start the server with one of those, e.g. `--profile investigator` or `HYPERTOPOS_MCP_PROFILE=full`). Or the sphere cannot serve it (the refusal says it "needs multi_pattern data this sphere does not have"): `passive_scan` is listed only when an entity line is covered by two or more patterns.
 Solution: Manually combine `find_anomalies` across all patterns (account, pair, chain) and intersect results. See Phase 1 manual fallback recipe.
 
 ### `extract_chains` returns empty or times out

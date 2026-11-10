@@ -1,4 +1,4 @@
-# Declarative Motif Cheatsheets
+# Declarative Motif Cheatsheets (profile: full)
 
 > Loaded on demand when designing custom motif queries via `find_motif_by_hops`. The closed-vocab atoms (`find_motif_structuring`, `cycle_2`, `fan_out`, `fan_in`, `bipartite_burst`, `chain_k`, `split_recombine`) cover the standard typologies; reach for `find_motif_by_hops` only when the closed vocab doesn't fit the query shape.
 >
@@ -6,7 +6,7 @@
 
 ## Declarative structuring chain detection
 
-When the closed-vocab `find_motif_structuring` is too rigid (you want a different chain length, a custom amount-decay shape, or a per-hop edge-dim filter), reach for `find_motif_by_hops` with the `amount_ratio_to_prev` predicate. The classic deposit → split → wire signature is "each next hop carries materially less than the previous one" — that maps directly to a per-hop ratio cap.
+When the closed-vocab `find_motif_structuring` is too rigid (you want a different chain length, a custom amount-decay shape, or a per-hop edge-dim filter), reach for `find_motif_by_hops` (profile: full) with the `amount_ratio_to_prev` predicate. The classic deposit → split → wire signature is "each next hop carries materially less than the previous one" — that maps directly to a per-hop ratio cap.
 
 ```yaml
 # 3-hop chain: deposit → split → wire

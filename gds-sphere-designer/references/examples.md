@@ -43,7 +43,6 @@ patterns:
           - n_standing_orders_derived: count
     relations: auto
     anomaly_percentile: 95
-    dimension_weights: kurtosis
     tracked_properties: [owner_gender, frequency]
 
   account_stress_pattern:
@@ -68,7 +67,6 @@ patterns:
     relations: []
     anomaly_percentile: 90
     group_by_property: frequency
-    dimension_weights: kurtosis
     tracked_properties: [loan_status, has_loan]
 ```
 
@@ -204,12 +202,11 @@ sources:
       - column: quantity
       - column: late_days
     anomaly_percentile: 95
-    dimension_weights: kurtosis
 ```
 
 **What this does:** The event pattern combines 3 relational dimensions (customer, supplier, shipmode) with 4 continuous event dimensions (price, discount, quantity, delivery lateness). Each relation adds a directional edge to the event polygon. The `late_days` column is a computed column from the prepare script (`receipt_date - commit_date`) — it is not in the raw TPC-H schema and must be created in `prepare_lineitems.py`. `required: false` on `shipmodes` means events without a shipmode value are still included in the geometry.
 
-**When to use:** Use multiple `event_dimensions` when each dimension captures a distinct aspect of the event's shape. Four is a reasonable maximum — beyond 7-8 dimensions, delta vector distances become less discriminative (curse of dimensionality). `kurtosis` weighting automatically down-weights low-variance dimensions, so adding a low-signal column rarely hurts as long as signal columns are still present.
+**When to use:** Use multiple `event_dimensions` when each dimension captures a distinct aspect of the event's shape. Four is a reasonable maximum — beyond 7-8 dimensions, delta vector distances become less discriminative (curse of dimensionality). `kurtosis` weighting does not protect against a low-signal column: it only amplifies heavy-tailed dimensions (all weights are at least 1), whatever their signal, so compare it with uniform weights before keeping it.
 
 **Common mistake:** Including highly correlated columns as separate event dimensions (e.g. both `extendedprice` and `net_price = extendedprice * (1 - discount)`). Correlated dims double-count the same signal and inflate delta distances for that direction. Include either the raw price or the derived price, not both.
 
@@ -288,7 +285,6 @@ patterns:
           - n_ship_modes: count_distinct:shipmode
     relations: auto
     anomaly_percentile: 95
-    dimension_weights: kurtosis
     gmm_n_components: 2
     tracked_properties: [nation]
 
@@ -305,7 +301,6 @@ patterns:
           - max_single_price: max:extendedprice
     relations: auto
     anomaly_percentile: 95
-    dimension_weights: kurtosis
     gmm_n_components: 2
     tracked_properties: [nation]
 ```
@@ -336,7 +331,6 @@ patterns:
           - burst_monthly: "count:window=30d:agg=max"
     relations: auto
     anomaly_percentile: 95
-    dimension_weights: kurtosis
     gmm_n_components: 3
     group_by_property: mktsegment
     tracked_properties: [nation]

@@ -5,13 +5,15 @@ license: Apache-2.0
 compatibility: Requires hypertopos CLI (pip install hypertopos). No live MCP session needed for design phases.
 metadata:
   author: Karol Kedzia
-  version: 0.10.1
+  version: 0.11.0
   mcp-server: hypertopos
 ---
 
 # GDS Sphere Designer Skill
 
 End-to-end sphere design and construction. From raw data to navigable geometry.
+
+**Profiles:** `full` — `recalibrate`, `composite_risk` and the calibration tools are outside the default `investigator` profile; start the server with `--profile full` or set `HYPERTOPOS_MCP_PROFILE=full`.
 
 ## Core principle
 
@@ -313,7 +315,6 @@ patterns:
     event_dimensions:
       - column: amount
     anomaly_percentile: 95
-    dimension_weights: kurtosis
 
   entity_pattern:
     type: anchor
@@ -330,7 +331,6 @@ patterns:
           - burst_monthly: "count:window=30d:agg=max"
     relations: auto
     anomaly_percentile: 95
-    dimension_weights: kurtosis
     gmm_n_components: 3
 
 temporal:
@@ -456,7 +456,7 @@ triangulation -- confirm via a different pattern where only one source contribut
 | Parameter | Default | When to change |
 |-----------|---------|----------------|
 | `anomaly_percentile` | 95 | Lower (90) for more sensitive detection, higher (99) for fewer flags |
-| `dimension_weights` | `kurtosis` | Use `kurtosis` unless all dimensions are equally important |
+| `dimension_weights` | uniform (unset) | `kurtosis` amplifies heavy-tailed dimensions (weights >= 1); on a `delta_norm`-scored event pattern it can rank real anomalies worse than uniform weights, so set it only after comparing both on labelled or reviewed cases |
 | `gmm_n_components` | 3 | Increase if population has distinct sub-groups (e.g. retail vs corporate) |
 | `group_by_property` | null | Set when sub-populations have different normal behavior (e.g. per-country) |
 | `score_per_group` | false | Add with `group_by_property` to score each group against its own reference; each group keeps its own alarm budget |

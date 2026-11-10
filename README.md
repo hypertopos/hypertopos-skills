@@ -3,7 +3,7 @@
 > Business data as geometry that AI agents navigate — the investigation workflows.
 
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE)
-![Version](https://img.shields.io/badge/version-0.10.3-%235500FF.svg)
+![Version](https://img.shields.io/badge/version-0.11.0-%235500FF.svg)
 
 Install the skills into your agent, connect [hypertopos-mcp](https://github.com/hypertopos/hypertopos-mcp) to a sphere, and ask in plain language — the matching skill decides which tool to call, in which order, what the result means, and what to check next.
 
@@ -170,7 +170,8 @@ Investigate: gds-analyst (drives the investigation)
 | Symptom | Fix |
 |---|---|
 | The agent does not pick up a skill | Use a trigger phrase from the table above, or name the skill. Check the skill folders are in the agent's skills directory. |
-| "Tool X is not available" right after `open_sphere` | The agent skipped orientation. `sphere_overview()` unlocks the manual toolset. |
+| "Tool X is not in this server's tool profile" | The server runs one tool profile (`investigator` by default). Start it with `--profile full` (or a union such as `--profile investigator,inspector`), or set `HYPERTOPOS_MCP_PROFILE`. Each skill's `Profiles:` line names the profile it needs. |
+| "Tool X needs … data this sphere does not have" | The sphere lacks that capability (temporal data, a second pattern on the line); the tool is hidden after `open_sphere`. |
 | Temporal recipes (`gds-monitor`, trajectory scans) find no tools | The sphere has no temporal data. Rebuild with a temporal configuration; `open_sphere` reports `capabilities.has_temporal`. |
 | `unknown parameter 'limit' … did you mean 'top_n'?` | The agent used a name from another API. The skills' examples use the declared names; the error names the right one. |
 | `detect_pattern` returns nothing useful | Rephrase with the entity type and a dimension name; the skills prefer `sphere_overview` plus targeted calls when the query is vague. |

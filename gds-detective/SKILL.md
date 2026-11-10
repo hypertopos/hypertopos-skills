@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Requires hypertopos MCP server. Designed for Claude Code and compatible agents.
 metadata:
   author: Karol Kędzia
-  version: 0.10.0
+  version: 0.11.0
   mcp-server: hypertopos
 ---
 
@@ -19,6 +19,8 @@ trajectory shapes, collective drift, and cross-pattern discrepancies.
 Each recipe below is a tested sequence of tool calls. Adapt parameters to
 the sphere at hand — the shapes are universal, the thresholds are starting
 points.
+
+**Profiles:** `full` — `aggregate`, `dive_solid` and the `detect_*` tools are outside the default `investigator` profile (`aggregate` and `dive_solid` are also in `inspector`); start the server with `--profile full` or set `HYPERTOPOS_MCP_PROFILE=full`.
 
 For concrete output examples of each recipe, see [references/examples.md](references/examples.md).
 

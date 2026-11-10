@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Requires hypertopos MCP server. Designed for Claude Code and compatible agents.
 metadata:
   author: Karol Kędzia
-  version: 0.10.0
+  version: 0.11.0
   mcp-server: hypertopos
 ---
 
@@ -18,6 +18,8 @@ effects, non-linear temporal trajectories, and population segment shifts.
 The goal is actionable findings — not observations, not summaries, not
 recommendations for future work. Every finding should answer: what is
 anomalous, why, and what to do about it.
+
+**Profiles:** `full` — `aggregate`, `dive_solid` and the detection recipes are outside the default `investigator` profile (`aggregate` and `dive_solid` are also in `inspector`); start the server with `--profile full` or set `HYPERTOPOS_MCP_PROFILE=full`.
 
 ---
 

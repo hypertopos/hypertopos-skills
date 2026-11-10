@@ -4,6 +4,21 @@ Each typology is a sequence of MCP calls in shorthand: arguments that stay the s
 
 > **Newer recipes in `SKILL.md`.** The R-numbered recipe family in the main skill (R1-R11) is the canonical entry point for typology recipes. The Phase 3 typologies below are the legacy presentation kept for reference. New domain-specific recipes — R10 (Trade-based money laundering), R11 (Mule network discovery) — live in `SKILL.md` after R9. When a Phase 3 typology composes the same primitives as an R-recipe, prefer the R-recipe in investigator workflows.
 
+## Motif types per typology
+
+The structural motif each typology is built from. Score one suspect with `score_motif(primary_key, motif_type, pattern_id)` or rank a pattern with `find_high_potential_motifs(pattern_id, motif_type)`; T-numbers are the typologies below.
+
+| `motif_type` | Shape | Typologies |
+|---|---|---|
+| `fan_out` | hub → k distinct targets in the window (min k=3) | T6 Offshore Hub, T13 Concentrator (source side) |
+| `fan_in` | k distinct sources → sink in the window (min k=3) | T12 Parallel Layering (destination side), T13 Concentrator / Sink |
+| `cycle_2` | A↔B bidirectional pair within the window | T2 Flash-Burst Round-Trip, T4 Bidirectional Burst |
+| `cycle_3` | A→B→C→A, strict temporal order | T3 Round-Tripping 3-Party, T5 Long-Cycle, T11 Multi-Round-Tripping |
+| `chain_k` | open A→B→…→Z chain of length k (3–8), monotone timestamps | T5 Multi-Stage Layering, T18 Multi-Jurisdiction Latency Chain |
+| `structuring` | A→B→C→D, hop 1 ≥ `amt1_min`, hops 2–3 ≤ `amt2_max` | structuring / smurfing |
+| `split_recombine` | diamond S → {M₁…Mₖ} → D, all splits before all recombines | `direction="forward"`: T1 Structured Layering (scatter-gather); `direction="backward"`: T12 Parallel Layering, T13 Concentrator / Sink (diamond subtype) |
+| `bipartite_burst` | complete K_{k,m} in a tight window | T16 Mirror-Flow Burst (cohort / parallel-collusion variant) |
+
 ### Typology 1: Structured Layering
 
 Multi-hop structuring with rounded amounts across jurisdictions.
@@ -93,7 +108,7 @@ Shell-company hub connecting jurisdictions. Requires jurisdiction risk data.
 
 Requires: `jurisdiction_risk` as tracked_property on accounts.
 
-### Typology 7: Salary Abuse
+### Typology 7: Salary Abuse (profile: inspector or full)
 
 Salary account with unexpected cross-border high-value activity.
 
@@ -121,7 +136,7 @@ Very intense burst with multi-hop chain and return flow.
 7. Flag: FLASH_BURST_MULTIHOP
 ```
 
-### Typology 9: Shell-Company Layering
+### Typology 9: Shell-Company Layering (profile: inspector or full)
 
 Corporation/shell entity with high counterparty volume and cross-border flow.
 Requires: `account_type` column on accounts line.
@@ -136,7 +151,7 @@ Requires: `account_type` column on accounts line.
 6. Flag: SHELL_COMPANY_LAYERING
 ```
 
-### Typology 10: Acceleration with Dormancy
+### Typology 10: Acceleration with Dormancy (profile: inspector or full)
 
 Dormant account suddenly active with high-value cross-border transactions.
 Uses `max_rolling_z` from temporal build.
@@ -249,7 +264,7 @@ Multiple counterparties with near-symmetric in/out flows (A sends ~X to B, B sen
 
 > **Fast-path (cohort burst):** when the suspected shape is k coordinated senders fanning to m shared receivers in a tight window (mule-ring / parallel-collusion variant of mirror-flow burst), use `find_high_potential_motifs(pattern_id, motif_type="bipartite_burst", min_k=3, min_m=3, time_window_hours=24)`. The K_{k,m} completeness constraint requires every source to transact with every sink — much tighter than a single-anchor `fan_out` ranking, so the result is a small set of high-confidence coordinated-cohort candidates rather than a high-recall noisy list. Confirm the mirror-flow geometry of each cohort with `find_counterparties` per source.
 
-### Typology 17: Seasonality Breaker
+### Typology 17: Seasonality Breaker (profile: inspector or full)
 
 Account with historically stable regular pattern that suddenly becomes chaotic.
 
@@ -328,7 +343,7 @@ Account collects from many small sub-entities, then sends few large outflows.
 5. Flag: BRANCH_SWITCHING
 ```
 
-### Typology 22: Delta-Drift Burst
+### Typology 22: Delta-Drift Burst (profile: inspector or full)
 
 Stable account that suddenly shifts multiple behavioral dimensions at once.
 
