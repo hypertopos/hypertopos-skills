@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.12.0] — 2026-11-12
+
+### Added
+
+- `gds-spark`: what changed since the last run is read with `compare`, with the caveats that some entities change sides by chance and that the reasons come from the current run, not from rank movements.
+- `gds-spark`: questions that name dimensions ("many counterparties but small amounts") are answered by filtering `dimension_rank_pct` on a result made with `dimension_ranks=True`, not by recomputing ranks from the events.
+- `gds-spark`: scheduled jobs keep an entity history table; onset and newly flagged entities are read from it, and flags are compared only between runs with the same calibration.
+- `gds-spark`: a case is written up from its `evidence_record` row, with the `notes` quoted and the calibration fingerprint kept with it.
+- `gds-spark`: the agent reads `flag_drivers` from the calibration card and says so when one or two dimensions lead most of the flags.
+- `gds-spark`: the agent reads `one_sided` from the calibration card and reports flags of entities with no incoming events as a separate group.
+- `gds-spark`: a population is shared with `export_reference`, with the caveats that it is not anonymised and that `calibration_status` is read before any flag.
+
+### Changed
+
+- `gds-spark`: the agent treats the keys of the `entity` column as the entities, no longer warns about receivers becoming entities, and offers a second call with the roles swapped when the receiving side should be scored.
+
 ## [0.11.0] — 2026-11-10
 
 ### Added
